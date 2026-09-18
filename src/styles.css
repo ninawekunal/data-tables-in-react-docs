@@ -1,0 +1,235 @@
+@import 'tailwindcss';
+
+/* ---------------------------------------------------------------
+   Palette. Plum primary, amber accent, warm paper in light mode,
+   true neutral in dark. Every colour in the app comes from here.
+   --------------------------------------------------------------- */
+:root {
+  --bg: #fbf9f6;
+  --surface: #ffffff;
+  --surface-2: #f4f1ec;
+  --border: #e3ded6;
+  --text: #1c1a24;
+  --text-muted: #5d5869;
+  --primary: #5b21b6;
+  --primary-soft: #ede9fe;
+  --accent: #b45309;
+  --accent-soft: #fef3c7;
+  --ok: #15803d;
+  --ok-soft: #dcfce7;
+  --warn: #b91c1c;
+  --warn-soft: #fee2e2;
+  --info: #1d4ed8;
+  --info-soft: #dbeafe;
+  --code-bg: #f4f1ec;
+  --ring: #5b21b6;
+  --shadow: 0 1px 2px rgb(28 26 36 / 6%), 0 8px 24px rgb(28 26 36 / 6%);
+  --reading-width: 72ch;
+}
+
+[data-theme='dark'] {
+  --bg: #121116;
+  --surface: #1a1920;
+  --surface-2: #23212b;
+  --border: #322f3c;
+  --text: #ece9f2;
+  --text-muted: #a49fb2;
+  --primary: #c4b5fd;
+  --primary-soft: #2b2340;
+  --accent: #fbbf24;
+  --accent-soft: #3a2c10;
+  --ok: #86efac;
+  --ok-soft: #14301f;
+  --warn: #fca5a5;
+  --warn-soft: #3a1717;
+  --info: #93c5fd;
+  --info-soft: #17243f;
+  --code-bg: #23212b;
+  --ring: #c4b5fd;
+  --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 8px 24px rgb(0 0 0 / 35%);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+  scroll-padding-top: 5.5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 17px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------
+   The reading surface. Markdown renders into .prose, so these are
+   plain CSS rules rather than utility classes.
+   --------------------------------------------------------------- */
+.prose {
+  max-width: var(--reading-width);
+}
+
+.prose h2 {
+  font-size: 1.45rem;
+  line-height: 1.25;
+  margin: 2.75rem 0 0.75rem;
+  letter-spacing: -0.01em;
+  scroll-margin-top: 5.5rem;
+}
+
+.prose h3 {
+  font-size: 1.1rem;
+  margin: 1.75rem 0 0.5rem;
+  scroll-margin-top: 5.5rem;
+}
+
+.prose p { margin: 0.85rem 0; }
+
+.prose ul,
+.prose ol { margin: 0.75rem 0; padding-left: 1.35rem; }
+
+.prose li { margin: 0.35rem 0; }
+
+.prose a {
+  color: var(--primary);
+  text-underline-offset: 3px;
+}
+
+.prose strong { font-weight: 650; }
+
+.prose code {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.1em 0.35em;
+  font-size: 0.86em;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+.prose pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.prose pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: inherit;
+}
+
+.prose blockquote {
+  margin: 1rem 0;
+  padding: 0.1rem 0 0.1rem 1rem;
+  border-left: 3px solid var(--border);
+  color: var(--text-muted);
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+  margin: 1rem 0;
+}
+
+.prose th,
+.prose td {
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.7rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.prose th { background: var(--surface-2); font-weight: 600; }
+
+.table-wrap { overflow-x: auto; margin: 1rem 0; }
+
+.prose img { max-width: 100%; border-radius: 10px; }
+
+.prose svg { max-width: 100%; height: auto; }
+
+/* Callout boxes. One class per bucket, colour driven by tokens. */
+.callout {
+  margin: 1.1rem 0;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.callout > :first-child { margin-top: 0; }
+.callout > :last-child { margin-bottom: 0; }
+
+.callout-label {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  margin-bottom: 0.4rem;
+}
+
+.callout-tldr { background: var(--primary-soft); border-color: color-mix(in srgb, var(--primary) 30%, transparent); }
+.callout-tldr .callout-label { color: var(--primary); }
+
+.callout-steps { background: var(--info-soft); border-color: color-mix(in srgb, var(--info) 30%, transparent); }
+.callout-steps .callout-label { color: var(--info); }
+
+.callout-nuance { background: var(--surface-2); }
+.callout-nuance .callout-label { color: var(--text-muted); }
+
+.callout-interview { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.callout-interview .callout-label { color: var(--accent); }
+
+.callout-gotcha { background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
+.callout-gotcha .callout-label { color: var(--warn); }
+
+.callout-win { background: var(--ok-soft); border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
+.callout-win .callout-label { color: var(--ok); }
+
+/* Bionic reading: only the fixation half is emphasised. */
+.bionic b.fx {
+  font-weight: 700;
+  color: inherit;
+}
+
+.bionic {
+  letter-spacing: 0.005em;
+  word-spacing: 0.04em;
+}
+
+.tag {
+  display: inline-block;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid currentColor;
+  vertical-align: 0.1em;
+}
+
+.prose img {
+  display: block;
+  margin: 1.25rem 0;
+  border: 1px solid var(--border);
+  background: #fff;
+}

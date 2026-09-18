@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Data Tables in React</title>
+    <meta name="description" content="A 7-part learning series on building React data tables with TanStack Table and shadcn/ui, each part with a graded quiz." />
+    <script>
+      // Set the theme before first paint so there is no light flash.
+      try {
+        var t = localStorage.getItem('ldb-theme')
+        if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.dataset.theme = 'dark'
+        } else {
+          document.documentElement.dataset.theme = 'light'
+        }
+      } catch (e) {
+        document.documentElement.dataset.theme = 'light'
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
