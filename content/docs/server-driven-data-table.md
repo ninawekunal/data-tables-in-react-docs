@@ -9,94 +9,108 @@ minutes: 18
 
 ## The big picture
 
+> [!TERMS]
+> - **Server-driven table** - a table where the server does the filtering, sorting and paging, and the browser only shows one page.
+> - **API** - the real backend service that owns the data.
+> - **BFF (backend for frontend)** - a small server that sits between the browser and the real API, shaped around what one screen needs.
+> - **Route / loader** - in React Router, a URL your app answers; the loader is the function that runs on the server for that URL.
+> - **Cache** - a place to keep a recent answer so you do not have to ask the API again.
+> - **Scope / entitlements** - which rows a particular user is allowed to see.
+> - **Schema (zod)** - a written-down shape for data, checked at runtime, so bad data fails loudly.
+> - **SSR (server-side rendering)** - building the first HTML on the server so the page arrives with content already in it.
+> - **Hydration** - React in the browser attaching itself to that server HTML. Both sides must produce identical HTML.
+
 > [!TLDR]
-> When data is too big or too sensitive to ship whole, the table moves behind a
-> BFF: three routes (list, filter options, CSV) that all read one per-user cache
-> and run one pure pipeline.
+> When the data is too big, or too private, to send to the browser, the table moves to the server.
+> Three small routes - the list, the filter options and the CSV export - all run the same logic on the same cached data.
 
-The Trade orders blotter holds tens of thousands of orders, and an FX trader must
-never receive a Rates order, even in JSON they never look at.
+In part 1, all 240 rows lived in the browser.
+Now imagine tens of thousands of trade orders.
+And imagine a rule: a trader on the FX desk must **never** receive a Rates order - not even hidden in data they never look at.
 
-| Reason to move server-side | What breaks on the client |
+Filtering in the browser cannot keep that promise.
+If the browser hides a row, the browser already has the row.
+So the filtering has to happen before the data leaves the server.
+
+| Why move to the server | What goes wrong in the browser |
 | --- | --- |
 | Size | You cannot ship 50,000 rows on every visit |
-| Entitlements | Client-side filtering means the browser already holds the hidden rows |
-| Consistency | List, dropdowns and CSV drift unless one pipeline produces all three |
+| Privacy | "Hidden" rows have already been downloaded |
+| Consistency | The table, the dropdowns and the export can each end up slightly different |
 
 ![Three route files (list, filter options, CSV) each pointing down into one shared bff folder holding the per-user cache, the pure compute module and the zod schema, with the cache alone calling the upstream Trading API](images/02-ssr-bff-data-table/route-triple-one-pipeline.png)
 
-A BFF ("backend for frontend") here is not a separate service. It is React Router
-v7 resource routes - a `loader` and no component - in the same app, sharing the
-session cookie and the types. `.server.ts` files never reach the client bundle.
+> [!ANALOGY]
+> The real API is a warehouse.
+> The BFF is the shop counter in front of it: it checks who you are, fetches only what you are allowed to buy, and hands it over neatly packed for this one screen.
+
+Here the BFF is not a separate service.
+It is a few extra routes inside the same React Router app, sharing the same login cookie and the same TypeScript types.
+Files ending in `.server.ts` never get sent to the browser, so secrets stay on the server.
 
 > [!NUANCE]
-> Not every table deserves a BFF. A small table on a detail page with nothing to
-> compute gains only a layer: load the rows in the page loader and let TanStack
-> work client-side, as in part 1.
+> Not every table needs this.
+> A small table on a detail page with nothing to compute is fine loading its rows directly and doing the work in the browser, like part 1.
 
-## The list route: the order is the design
+## One request, six steps in a fixed order
 
 > [!TLDR]
-> Permission, params, cache, compute, schema, response. In that order, every time.
+> Every list request does the same six things, always in the same order: check permission, read the query, get the data, compute the page, check its shape, send it back.
 
 ![The list loader as six numbered steps inside a server box: permission check, per-user cache, upstream fetch on a miss, pure compute, zod parse, and a private no-store response back to the browser](images/02-ssr-bff-data-table/bff-loader-pipeline.png)
 
 ```tsx
 export const loader = async ({ request }: Route.LoaderArgs) => {
-  const caller = await requirePermission(request, "orders:read"); // 1
-  const parsed = parseOrdersParams(new URL(request.url).searchParams); // 2
+  const caller = await requirePermission(request, "orders:read"); // 1. who are you?
+  const parsed = parseOrdersParams(new URL(request.url).searchParams); // 2. what do you want?
 
   if (!parsed.success) return data({ error: "invalid_params" }, { status: 400, headers: NO_STORE });
 
-  const baseline = await getOrdersBaseline(caller); // 3
-  const payload = ordersResponseSchema.parse(       // 5
-    computeOrders(baseline, parsed.data, caller.desks)); // 4
-
-  return data(payload, { headers: NO_STORE });      // 6
+  const baseline = await getOrdersBaseline(caller); // 3. get the data (cached)
+  const page = computeOrders(baseline, parsed.data, caller.desks); // 4. work out the page
+  return data(ordersResponseSchema.parse(page), { headers: NO_STORE }); // 5. check shape, 6. send
 };
 ```
 
+Permission comes first so an unauthorised request costs nothing.
+The permission check returns a `Caller`: the user's id, their access token for the real API, and the desks they may see.
+
 > [!NUANCE]
-> - Permission first, so an unauthorized request costs nothing.
-> - The guard returns a `Caller`: user id, upstream token, and the desks that
->   token may see. There is no `desk` query parameter anywhere. **Scope comes
->   from the token, never the client.**
-> - A BFF guard must return 401/403, not a 302 to the login page. `fetch` follows
->   the redirect, `res.ok` passes on the HTML shell, and `res.json()` throws a
->   parse error that tells you nothing. Page routes redirect; BFF routes do not.
+> - There is no `?desk=FX` in the URL anywhere. **The user's allowed desks come from their login token, never from the browser**, because the browser can be edited.
+> - When the user is not logged in, a BFF route must answer 401 (not logged in) or 403 (not allowed).
+>   If it redirects to the login page instead, `fetch` quietly follows the redirect, receives an HTML page, and then fails to read it as JSON with a confusing error.
 
 > [!INTERVIEW]
-> - *Why not accept `?desk=FX` from the client?* Because the client can change it.
->   Anything that narrows what a user may see comes from their token.
+> - *Why not accept the desk from the client?* Anything that decides what a user may see has to come from something they cannot edit: their token.
 
-## The pure compute pipeline
+## The pure compute step
 
 > [!TLDR]
-> `compute.ts` has no `fetch`, no `Date.now()` and no request object. Scope,
-> filter, search, sort, paginate - all pure, all unit-testable.
+> All the table logic lives in one file, `compute.ts`, that only transforms data.
+> It never fetches, never reads the clock and never looks at the request, which makes it trivial to test.
+
+A **pure function** gives the same output for the same input, every time, and touches nothing else.
+That is what makes it easy to test: hand it rows, check what comes out.
 
 > [!STEPS]
-> 1. **Scope.** Keep only rows from the caller's desks, even if upstream already did.
-> 2. **Filter and search.** Tab statuses, facets, then the search box.
-> 3. **Sort with a tie-breaker.** Ties fall back to `id`, so equal values never shuffle between pages.
-> 4. **Paginate with a clamp.** A bookmarked `?page=40` on a list that shrank lands on the last page.
+> 1. **Scope.** Keep only rows from the user's desks - even if the API already did.
+> 2. **Filter and search.** Apply the tab, the dropdown filters, then the search box.
+> 3. **Sort, with a tie-breaker.** When two rows are equal, fall back to the order id, so rows never swap places between pages.
+> 4. **Page, with a clamp.** If someone bookmarked page 40 and the list shrank, show the last page instead of nothing.
 
 > [!NUANCE]
-> - `applyScope` looks redundant. It stays. Pushing a filter to the upstream API is
->   an optimization, never the authority: a spec saying the backend supports a
->   parameter is not proof it implements it. Re-applying costs bandwidth; skipping
->   it can show a trader the wrong rows.
-> - The first unit test is the entitlement rule as code. Delete `applyScope` and the build fails.
+> - Re-applying the desk scope looks like duplicate work. Keep it.
+>   An API document saying "we support this filter" is not proof the API actually applies it.
+>   Re-checking costs a little bandwidth; skipping it can show a trader someone else's orders.
+> - Write that rule as the very first unit test, so deleting the scope step fails the build.
 
 ## The per-user cache
 
 > [!TLDR]
-> Cache the **promise**, keyed by `userId` plus scope, for about 30 seconds. List,
-> filter options and CSV then share one upstream walk.
+> Keep each user's recent data for about 30 seconds, keyed by their user id.
+> The list, the dropdown options and the export then share one trip to the API.
 
 ```ts
-const cache = new Map<string, { promise: Promise<OrdersBaseline>; expiresAt: number }>();
-
 export const getOrdersBaseline = (caller: Caller) => {
   const key = `${caller.userId}|${[...caller.desks].sort().join(",")}`;
   const hit = cache.get(key);
@@ -104,114 +118,101 @@ export const getOrdersBaseline = (caller: Caller) => {
   if (hit && hit.expiresAt > Date.now()) return hit.promise;
 
   const promise = fetchOrdersBaseline(caller);
-  promise.catch(() => cache.delete(key)); // a failed walk evicts itself
+  promise.catch(() => cache.delete(key)); // a failed fetch removes itself, so the next try retries
   cache.set(key, { promise, expiresAt: Date.now() + TTL_MS });
 
   return promise;
 };
 ```
 
+Notice we store the **promise** (the "answer is coming" object), not the finished data.
+If three requests arrive a few milliseconds apart, the second and third simply wait on the first one's trip instead of starting their own.
+
 > [!NUANCE]
-> - Storing the promise, not the value, means two routes arriving milliseconds
->   apart share one upstream call.
-> - A module-level `Map` is shared by **every request** on the server. A key
->   without the user in it leaks one trader's orders to another.
-> - The upstream walk uses the caller's own token and has a ceiling (say 5,000
->   rows). An unbounded loop against someone else's API is an outage on a busy day.
-> - Totals must not come from your own truncated fetch. A capped walk once reported
->   a flat 5,000 that looked real. Read the count separately and surface a `truncated` flag.
+> - On the server, one `Map` is shared by **every user**. A key without the user id in it hands one trader's orders to the next.
+> - The trip to the API uses the user's own token, and it has a ceiling (say 5,000 rows). A loop with no ceiling against someone else's API is an outage waiting for a busy day.
+> - Do not count "total orders" from your own capped fetch. A capped fetch once reported a neat 5,000 that looked real. Ask the API for the true total, and show a "this list was cut short" warning.
 
 > [!GOTCHA]
-> There is a second cache you did not write: the browser's. A BFF that sends
-> `Cache-Control: private, max-age=10` lets the browser replay the response by
-> URL alone - so after one user logs out, the next person to log in on that
-> machine sees the previous user's table JSON. Send `private, no-store` from every
-> BFF route, and add a test that reads each route file and fails on `max-age`.
+> There is a second cache you never wrote: the browser's own.
+> If the BFF answers with `Cache-Control: private, max-age=10`, the browser may replay that answer by URL alone for ten seconds.
+> So after one person logs out, the next person to log in on that same laptop can briefly see the previous person's table.
+> Send `private, no-store` from every BFF route, and add a test that reads each route file and fails if `max-age` appears.
 
-## One zod contract on both ends
+## One shape, checked on both ends
 
 > [!TLDR]
-> The schema file has no `.server` suffix. The BFF parses before responding, and
-> the client parses the same schema on arrival.
+> Describe the response once with a zod schema.
+> The server checks its answer before sending it, and the browser checks it again on arrival.
 
 > [!NUANCE]
-> - Server-side parse: a bug in `compute.ts` fails where the logs are.
-> - Client-side parse: deploy skew (server and client on different versions) fails
->   at the boundary, not as `undefined` inside a cell.
-> - Params get a schema too, with every default in it, so `parse({})` is the default view.
-> - An unknown tab is a 400, not a silent fallback showing the wrong rows under the
->   right heading. A junk filter value (`?side=banana`) just means no filter.
-> - One serializer, `buildOrdersSearchParams`, builds the list query, the CSV link
->   and the page URL. Multi-values use repeated keys, so no delimiter collides with data.
+> - The server-side check catches bugs in `compute.ts` where the server logs are.
+> - The browser-side check catches **version skew**: a newly deployed server talking to an older page still open in someone's tab.
+>   It fails at the door instead of showing `undefined` in a cell.
+> - The URL's query parameters get a schema too, with every default written in, so an empty URL means "the default view".
+> - An unknown tab is an error (400), because falling back would show the wrong rows under the right heading.
+>   A junk filter value just means "no filter", which the user can see.
+> - One function builds query strings for the list, the export link and the page URL, so they can never disagree.
 
-## The client: manual mode and URL state
+## The browser side: "manual mode" and the URL
 
 > [!TLDR]
-> The table displays rows it did not sort, filter or page. Tell TanStack with the
-> three `manual*` flags, and keep the view state in the URL.
+> The browser shows rows it did not sort, filter or page itself, so you tell TanStack "the server already did this".
+> Everything the user chose lives in the URL, so a view can be bookmarked or pasted to a colleague.
 
 > [!STEPS]
-> 1. **Fetch with React Query.** `placeholderData` keeps old rows while the next page loads; `signal` cancels stale requests.
-> 2. **Throw on errors.** Never swallow a fetch error into an empty list - an empty table reads as "no data" and hides the outage.
-> 3. **Derive sorting and pagination from the URL.** Any patch without a `page` lands on page 1.
-> 4. **Debounce search into the URL.** The input owns a draft and commits 350ms after the last keystroke.
-> 5. **Set `manualSorting`, `manualFiltering`, `manualPagination`.** Otherwise TanStack sorts one page as if it were the whole dataset.
+> 1. **Fetch with React Query**, a library that fetches, caches and refetches data for you. Keep the old rows visible while the next page loads.
+> 2. **Throw on errors.** Never turn a failed request into an empty list - an empty table says "no orders", which hides the outage.
+> 3. **Read sort and page from the URL.** Any change that is not a page change goes back to page 1.
+> 4. **Debounce the search box into the URL**, so every keystroke does not become a new request.
+> 5. **Turn on `manualSorting`, `manualFiltering` and `manualPagination`.** Without them TanStack re-sorts the one page it holds as if it were everything.
 
 > [!NUANCE]
-> - Validate the header's column id against the server's sort-field enum, so the
->   table cannot request a sort the BFF does not know.
-> - `NO_ROWS` is a module constant; `?? []` hands the table a new array every render.
-> - Pass `initialData` only when the SSR seed matches the current view, or every
->   query key starts with page one's rows.
+> - Only allow sorts the server understands, by checking the column id against the server's list.
+> - Use a constant empty array for "no rows yet". `?? []` makes a new array every render, and TanStack treats that as new data.
 
 ![The Trade orders blotter on the Working tab: tabs, search, three filter pickers, ten rows and a footer reading 1-10 of 198, Page 1 of 20](images/02-ssr-bff-data-table/working-tab-default.png)
 
-## Filter options and reusable columns
+## Dropdown options, and reusable columns
 
 > [!TLDR]
-> Options come from a second route that reads the **unfiltered** baseline. Columns
-> are small factories composed per tab inside one `useMemo`.
+> The filter dropdowns get their options from a separate route that looks at **all** of the user's data, not the filtered page.
+> Columns are small functions you mix and match per tab.
 
 ![Side by side: deriving Symbol options from the filtered rows leaves a picker with only NVDA in it, while a second route that ignores the filters keeps every symbol available with NVDA checked](images/02-ssr-bff-data-table/filter-options-baseline.png)
 
-> [!NUANCE]
-> - Deriving options from a filtered fetch collapses the dropdown to the value you
->   already picked, with no way to change your mind. The client only holds one page anyway.
-> - Options load lazily: `enabled: open` fetches nothing until the popover opens,
->   and `staleTime: Infinity` fetches once per visit.
-> - Sort options with `numeric: true` so `ZNZ6` lands before `ZNZ26`.
-> - Column sizing and labels live in a React-free config, so the CSV route imports the same labels.
-> - Object spread is shallow: a factory that writes `meta: { numeric: true }`
->   silently drops the label from the spread config. Re-spread: `meta: { ...colMeta(id), numeric: true }`.
-> - `useMemo(..., [tab])` is not a micro-optimization. A new `columns` array
->   remounts every cell.
+Look at the left side of that picture.
+If the dropdown's options came from the filtered rows, picking "NVDA" would leave only "NVDA" in the list.
+You could never pick a second symbol.
 
-## SSR seeding, hydration and CSV
+> [!NUANCE]
+> - Options load only when a dropdown is first opened, then stay cached for the visit.
+> - Sort options "naturally" so `ZNZ6` comes before `ZNZ26`.
+> - Keep column labels and widths in a plain config file, so the CSV export can reuse the same labels.
+> - JavaScript's `{ ...a, meta: {...} }` replaces `meta` completely rather than merging it. Spread the old meta back in, or labels vanish.
+> - Build the columns inside `useMemo` keyed by the tab, so switching unrelated state does not rebuild them.
+
+## First paint, hydration and CSV
 
 > [!TLDR]
-> Seed the first page from the page loader only where people land cold on a list.
-> Either way the table renders on the server, so every cell must format identically in Node and the browser.
+> You can pre-fill the first page on the server, or show placeholders and fetch after load.
+> Either way, every cell must print exactly the same text on the server and in the browser.
 
-| Choice | Upside | Cost |
+| Choice | Good | Cost |
 | --- | --- | --- |
-| Seeding loader | Rows in the server HTML | Navigation blocks until the upstream walk finishes |
-| Thin loader | Navigates instantly | First paint is skeleton rows |
+| Pre-fill on the server | Rows are in the very first HTML | Clicking the menu link waits until the data is ready |
+| Fetch after load | The page opens instantly | The first view is grey placeholder rows |
 
 > [!NUANCE]
-> - The loader imports the same functions; it never calls its own BFF over HTTP.
-> - Export `shouldRevalidate`, or every sort click re-runs the page loader too.
-> - Create the `QueryClient` inside `useState`, never as a module singleton shared by every user.
-> - Hydration-safe cells: pin the time zone (`timeZone: "UTC"`), the clock
->   (`hour12: false`) and the locale. Never compute "2h ago" from `Date.now()` in
->   render; the BFF sends `asOf`.
-> - CSV reuses the pipeline minus `paginate`. An export never has more rows than the
->   view. With `?ids=` it exports exactly the selection, still scoped.
-> - Two loading states: first load (skeletons at real column widths) and refetch
->   (old rows dimmed, `aria-busy`).
+> - Pin the time zone, the 12/24-hour clock and the locale in your formatters.
+>   Otherwise the server formats "14:31" in its zone and the browser in the user's, and React complains the HTML does not match.
+> - Never compute "2 hours ago" from the current time while drawing. The server sends an `asOf` time instead.
+> - Create React Query's client inside the component, never as a shared module variable, or users share a cache.
+> - The CSV route runs the same pipeline without paging. With selected ids it exports exactly those, still limited to the user's desks.
+> - While the next page loads, dim the old rows and mark the table busy for screen readers.
 
 > [!WIN]
-> One pipeline, three routes, zero drift: the list, the filter dropdowns and the
-> export always agree, and no request can widen its own scope.
+> One pipeline, three routes, no drift: the table, the dropdowns and the export always agree, and no request can widen what its user is allowed to see.
 
 ![Mid-refetch after clicking next page: page 1's rows are still on screen at 60% opacity while the footer already reads 11-20 of 198, Page 2 of 20](images/02-ssr-bff-data-table/page-2-refetching.png)
 

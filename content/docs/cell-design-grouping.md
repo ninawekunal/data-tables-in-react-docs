@@ -9,135 +9,137 @@ minutes: 15
 
 ## The big picture
 
+> [!TERMS]
+> - **Cell** - one box in the table: one row, one column.
+> - **Grouping** - showing two fields in one cell, one on top of the other.
+> - **Accessor** - the function that reads the raw value a column stands for. Sorting and filtering use this, not what you draw.
+> - **Renderer** - the function that draws the cell. It is only for the eyes.
+> - **Reconcile** - checking figures line by line against another system, like a bank statement.
+> - **Locale** - a country's number and date style: `1,640,750.00` in the US, `1.640.750,00` in Germany.
+> - **ColumnDef.meta** - a free-form bag on each TanStack column where you can put your own flags.
+
 > [!TLDR]
-> Tables age badly when every field gets its own column and every page formats
-> money its own way. Group context, keep peer numbers apart, and standardize the
-> cells people compare.
+> Tables age badly when every field gets its own column and every page formats money its own way.
+> Put context in the same cell as the value it explains, keep numbers people compare apart, and make money look identical everywhere.
 
-| Decision | Rule |
+| Decision | The rule |
 | --- | --- |
-| Group two fields | Only when the second is read against the first and never sorted, filtered or reconciled alone |
-| Keep apart | Peer numbers: quantity and price, market value and PnL |
-| Renderer | Presentation only. Sort, filter and CSV read the accessor |
-| Money | Two decimals, `tabular-nums` inside the component, pinned locale, code only when it differs from base |
-| Conventions | `ColumnDef.meta` flags, applied in one cell wrapper |
-| Copy | Right-click, so the single click stays free for the row action |
+| Put two fields in one cell | Only if the second is read *with* the first, and nobody sorts or filters by it alone |
+| Keep apart | Numbers people compare: quantity and price, value and profit |
+| What sorting uses | The accessor, never the drawn cell |
+| Money | Two decimals, equal-width digits, a fixed locale, a currency code only when it differs |
+| Shared rules | Flags on the column, applied in one place |
+| Copying values | Right-click, so the normal click stays free |
 
-Every column costs horizontal pixels and one more stop for the eye on every row.
-Once the table scrolls sideways, the instrument name leaves the screen while you
-read the PnL.
+Every column costs width and one more stop for the eye on every row.
+Once a table scrolls sideways, the name of the thing you are looking at slides off-screen while you read its numbers.
 
 ![The 14-column Positions blotter, cut off at Market value by horizontal scroll](images/05-cell-design-grouping-and-standard-cells/before-14-columns.png)
 
-## When to group
+## When two fields share a cell
 
 > [!TLDR]
-> Group when the second value means nothing to the reader except as context for
-> the first. Nobody scans for "NVIDIA Corp"; they scan for `NVDA` and the name confirms the hit.
+> Group two fields when the second one only makes sense next to the first.
+> Nobody scans a column for "NVIDIA Corp". They scan for `NVDA`, and the name underneath just confirms it.
 
 ![Two questions decide it: is the second value only read against the first, and does anyone sort or filter by it alone](images/05-cell-design-grouping-and-standard-cells/group-or-keep-separate.png)
 
+> [!ANALOGY]
+> A grouped cell is a name badge: big name, small job title underneath.
+> You read the name; the title just tells you which Sam this is.
+
 > [!STEPS]
-> 1. **Instrument.** Symbol primary; name and asset class as a muted second line.
-> 2. **Filled / Qty.** Not two facts but one ratio, with a 4px progress bar that reads as texture.
-> 3. **Desk / Trader.** Filing context: both lines muted so they never compete with values.
-> 4. **Submitted.** A timestamp with its age pill, derived from the date so they can never disagree.
+> 1. **Instrument.** The symbol on top; the full name and asset type small and grey below it.
+> 2. **Filled / Qty.** "1,200 of 5,000 filled" is really one fact (a ratio), shown with a thin progress bar.
+> 3. **Desk / Trader.** Who owns the row. Both lines grey, so they never compete with the numbers.
+> 4. **Submitted.** A time, plus a small "3h" age label worked out from that same time, so they can never disagree.
 
 > [!NUANCE]
-> - Fourteen columns became nine: five text fields folded into two cells, the
->   currency column folded into the money cell, and the position id moved to the detail drawer.
-> - Alert icons for a risky row go on the secondary line, so the primary column stays scannable.
-> - Compute age from an `asOf` stamped in the loader, never `Date.now()` in render,
->   or server and browser HTML differ and hydration fails.
-> - The day someone asks "can I sort by trader?", the trader gets its own column back.
+> - Fourteen columns became nine, and the table fits on screen.
+> - Warning icons go on the small second line, so the main column stays easy to scan.
+> - Work out "3h ago" from a timestamp the server sends, never from the clock while drawing. Otherwise the server's HTML and the browser's differ.
+> - The day someone asks to sort by trader, trader gets its own column back.
 
 ![The same rows as 9 grouped columns, fitting the viewport](images/05-cell-design-grouping-and-standard-cells/after-grouped-cells.png)
 
-## When NOT to group
+## When NOT to share a cell
 
 > [!TLDR]
-> Text context groups well. Peer numbers almost never do. `Filled / Qty` is the
-> exception only because the second number is the denominator of the first.
+> Text context groups well.
+> Numbers that people compare almost never do.
 
-A `Qty @ Price` cell fails three checks at once:
+A "Qty @ Price" cell fails three ways at once:
 
 > [!NUANCE]
-> - **Sort.** A risk manager sorts by quantity, a trader by price. One column has one sort key.
-> - **Filter.** `quantity < 0` and `lastPrice < 5` cannot both live on one column.
-> - **Compare down the column.** People read numbers digit under digit; a stack breaks that.
-> - Market value and unrealized PnL are reconciled against **different reports**, so they stay neighbours, not a pair.
+> - **Sorting.** A risk manager sorts by quantity; a trader sorts by price. One column can only sort one way.
+> - **Filtering.** "quantity below zero" and "price below 5" cannot both live on one column.
+> - **Comparing down the page.** People compare numbers digit under digit. Two stacked numbers break that.
+> - Market value and profit are checked against *different* reports, so they stay neighbours, not a pair.
+> - "Filled / Qty" is the one exception, because the second number is the bottom of the first number's fraction.
 
 > [!INTERVIEW]
-> - *How do you label a grouped header?* Name both halves in the cell's order with
->   the cell's separator - "Filled / Qty" - plus a tooltip saying which half the
->   sort uses. "Instrument" stays one word because it is a real noun for the pair.
+> - *How should a grouped header be labelled?* Name both halves, in the same order and with the same separator as the cell: "Filled / Qty". Add a tooltip saying which half the sort uses.
 
-## The renderer is presentation only
+## Sorting ignores what you draw
 
 > [!TLDR]
-> TanStack never reads `cell` when it sorts, filters or builds facets. Merge two
-> fields and you owe the table one answer: which value is this column?
+> TanStack never looks at your drawn cell when it sorts or filters.
+> So when you merge two fields, you must pick one value for the column to sort by - and write down why.
 
 ![One column definition feeds three consumers: the cell draws the screen, the accessorFn drives sort and filter, and a separate CSV list re-splits the pair](images/05-cell-design-grouping-and-standard-cells/three-consumers-of-a-column.png)
 
 ```tsx
 export const filledColumn: ColumnDef<OrderRow> = {
   id: "filledQuantity",
-  // Sorts by filled quantity, not fill ratio: "who has the most done"
-  // is what this blotter answers. The Qty half is context only.
+  // Sorts by the filled amount, not the fill percentage:
+  // "who has the most done" is the question this table answers.
   accessorFn: (row) => row.filledQuantity,
   cell: ({ row }) => <FilledCell filled={row.original.filledQuantity} quantity={row.original.quantity} />,
 };
 ```
 
 > [!NUANCE]
-> - Write the sort choice down in a comment. When someone reports the column
->   "sorts wrong", the comment is how they learn it was a decision.
-> - Under server sorting the column `id` goes to the BFF, so sort keys live in a
->   plain module the server can import.
-> - The CSV re-splits every merged cell and has **more** columns than the screen.
->   Numbers go out raw; a spreadsheet cannot sum `"EUR -879,400.00"`. The UI's
->   empty glyph becomes a genuinely blank field.
+> - The comment is the point. When someone reports "this column sorts wrong", it tells them it was a choice.
+> - The CSV export splits every merged cell back into separate columns and writes plain numbers, because a spreadsheet cannot add up "EUR -879,400.00".
+> - An empty cell on screen becomes a truly blank field in the CSV.
 
-## Standardize money
+## Money must look the same everywhere
 
 > [!TLDR]
-> Money must look identical in every table, because people reconcile it line by
-> line. Lock the decisions inside one `MoneyCell`, not at call sites.
+> People check money against statements, line by line.
+> Put every money rule inside one `MoneyCell` component, so no page can get it wrong.
 
 > [!STEPS]
-> 1. **Two decimals, always.** `1,640,750.00`, never `879,400.5` on the next row. Avoid `style: "currency"`, which picks digits per currency.
-> 2. **`tabular-nums` inside the component.** A rule at call sites gets forgotten.
-> 3. **Pin the locale.** Otherwise SSR hydration breaks and some users see `1.640.750,00`.
-> 4. **Currency code only when it differs from base,** muted and on the **left**, so digit right-edges stay aligned.
-> 5. **`null` renders `EmptyCell`,** never `0.00`, which is a claim about the value.
+> 1. **Always two decimals.** `1,640,750.00`, never `879,400.5` on the next row.
+> 2. **Equal-width digits (`tabular-nums`)**, set inside the component, so no page can forget.
+> 3. **One fixed locale.** Otherwise some readers see `1.640.750,00`, and the server and browser disagree.
+> 4. **Show the currency code only when it differs from the book's own currency**, small and on the left, so the right edges of the numbers still line up.
+> 5. **Show "no value" as a dash, never `0.00`.** Zero is a real claim about the value.
 
 > [!NUANCE]
-> - Compact notation ("1.6M") is banned from cells: it hides exactly the digits
->   someone is matching against another system.
-> - With a second line, the code must use `items-start` and a matching line height.
->   `items-center` floats it between the two lines.
+> - Never shorten to "1.6M" in a table cell. It hides exactly the digits someone is trying to match.
+> - With a second line under the amount, align the currency code to the top line, or it floats awkwardly between the two.
 
 ![Money, PnL and Day % columns: USD rows show no code, JPY and GBP rows show a muted code on the left, every right edge lines up](images/05-cell-design-grouping-and-standard-cells/money-and-pnl-cells.png)
 
-## PnL, percent and empty
+## Profit, percentages and "no value"
 
 > [!TLDR]
-> One `EmptyCell` for "no value", a sign plus a colour for PnL, and a `signed` flag
-> that separates a day change from a portfolio weight.
+> One shared empty-cell marker, a plus or minus sign as well as a colour for profit, and a clear difference between "changed by 1.8%" and "is 1.8% of the portfolio".
 
 | Cell | Rule | Why |
 | --- | --- | --- |
-| Empty | One muted glyph with an `aria-label` | Blank is ambiguous (failed load or nothing?); "N/A" reads as a word among numbers |
-| PnL | Explicit `+` / `-` and a gain/loss token | Colour alone disappears on a greyscale printout |
-| Percent | Format the number, append `%` | `style: "percent"` multiplies by 100, so 1.84 prints as 184.00% |
-| Loss colour | A `loss` token separate from `destructive` | A losing position is information, not an error |
+| Empty | One grey dash, with a label for screen readers | A blank could mean "failed to load"; "N/A" reads like a word among numbers |
+| Profit / loss | A + or - sign as well as green or red | Colour disappears on a black-and-white printout |
+| Percent | Format the number yourself, then add `%` | The built-in percent style multiplies by 100, so 1.84 becomes 184% |
+| Loss colour | Its own colour, not the "error red" | A loss is normal information, not something broken |
 
-## Conventions as ColumnDef.meta flags
+## Shared rules as column flags
 
 > [!TLDR]
-> Columns declare **what** they are through `meta` flags; one `DataTableCell`
-> wrapper decides **how** that renders. Change the money display once, touch zero columns files.
+> Each column just says **what** it is (`money: true`).
+> One shared wrapper decides **how** that looks.
+> Change the money style once, and no column file needs touching.
 
 ![Before, every columns file draws money itself; after, a column declares meta flags and one DataTableCell wrapper renders MoneyCell](images/05-cell-design-grouping-and-standard-cells/meta-flags-one-wrapper.png)
 
@@ -145,45 +147,33 @@ export const filledColumn: ColumnDef<OrderRow> = {
 export const marketValueColumn: ColumnDef<PositionRow> = {
   accessorKey: "marketValue",
   header: "Market value",
-  meta: { money: true }, // no cell, no MoneyCell import, no text-right
+  meta: { money: true }, // no custom cell, no alignment classes - the wrapper handles it
 };
 ```
 
 > [!GOTCHA]
-> A `getCurrency` meta that returns `Currency | null | undefined` has three meanings:
-> a currency ("this amount is in X"), `null` ("deliberately no code, already
-> converted to base"), and `undefined` ("use the row's currency"). Collapsing null
-> and undefined into one falsy check makes a converted USD column pick up the
-> row's local currency - and label a USD figure as EUR.
+> A "which currency?" flag often has three possible answers: a currency ("this amount is in EUR"), `null` ("already converted, show no code") and `undefined` ("use the row's own currency").
+> Treat `null` and `undefined` as the same "empty" case, and a column already converted to dollars quietly picks up each row's local currency - labelling a dollar figure as euros.
 
 > [!NUANCE]
-> - `meta` is an empty interface you extend by module augmentation. It is the one
->   place `interface` is required, because type aliases do not merge.
-> - Reading `MoneyCell`'s source and picking a variant at each call site feels like
->   research. It is invention. Conventions are flags, applied in one wrapper.
+> - `meta` starts empty. You describe your flags by extending TanStack's type, which is the one place TypeScript needs `interface` instead of `type`.
+> - Copying one cell's code into each page and tweaking it feels like research. It is how tables drift apart.
 
-## Copy and the two-line budget
+## Copying, and the two-line limit
 
 > [!TLDR]
-> Copy lives on right-click, which nothing else uses. Every cell gets at most two
-> lines, so row heights stay equal.
+> Put "Copy value" on right-click, which nothing else uses.
+> Give every cell at most two lines, so every row is the same height.
 
 > [!NUANCE]
-> - A copy icon repeats on every row and adds a second click target to a row that
->   already opens a drawer. Right-click keeps the single click free.
-> - Copy the accessor value, not the rendered text: the clipboard gets `1640750`.
-> - Honest limit: a `td` is not focusable and touch needs a long press, so keep the
->   id as selectable text in the detail view too.
-> - `min-w-0` on the flex container, or `truncate` silently does nothing - a flex
->   child refuses to shrink below its content.
-> - `min-h-4` on the secondary line keeps rows equal, which a fixed-`estimateSize` virtualizer relies on.
-> - Long single values use `line-clamp-2` plus `whitespace-normal`, because shadcn's
->   `TableCell` sets `whitespace-nowrap`.
-> - Status pills come from one `Record<Status, variant>` map, so "rejected" is the same red everywhere.
+> - A copy icon in every row adds a second click target to a row that already opens a drawer.
+> - Copy the raw value (`1640750`), not the drawn text, because that is what a spreadsheet wants.
+> - Honest limit: keyboard users cannot right-click a cell, so also show the id as selectable text in the detail view.
+> - Truncating long text inside a flex layout silently fails unless the container has `min-w-0`.
+> - Status badges come from one lookup table, so "rejected" is the same red everywhere.
 
 > [!WIN]
-> Nine readable columns instead of fourteen, money that matches the statement on
-> every screen, and conventions that live in one wrapper instead of forty files.
+> Nine readable columns instead of fourteen, money that matches the statement on every screen, and rules that live in one place instead of forty files.
 
 ```quiz
 [

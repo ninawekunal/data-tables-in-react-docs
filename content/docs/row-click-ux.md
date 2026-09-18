@@ -9,28 +9,37 @@ minutes: 15
 
 ## The big picture
 
+> [!TERMS]
+> - **Row click** - what happens when someone clicks anywhere on a row.
+> - **Expando** - a row that opens in place to show extra rows underneath it.
+> - **Side drawer (Sheet)** - a panel that slides in from the side, over the list.
+> - **Detail page** - a separate page, with its own URL, for one record.
+> - **Master-detail** - a list on one side and the selected record always open on the other, like an email inbox.
+> - **Portal** - a component whose HTML is placed somewhere else in the page, such as a dropdown menu.
+> - **Search param** - the `?key=value` part of a URL.
+> - **Focus ring** - the outline that shows which element the keyboard is on.
+
 > [!TLDR]
-> A pointer cursor is a promise. A row click can mean four different things, and
-> users only learn one per table - so pick it by what the user does **next**.
+> A pointer cursor is a promise that clicking does something useful.
+> A row click can mean four different things, and people only learn one per table - so choose by what the user wants to do **next**.
 
 ![Flow from a row click through two questions, keep the list in view and how deep is the work, to expando, side drawer, master-detail or a detail page](images/06-row-click-ux/row-click-decision.png)
 
-| Option | The job | User's next step |
+| Option | Use it when the user wants to... | Their next step |
 | --- | --- | --- |
-| Expando | Peek at child rows of the same record | Keep scanning the list |
-| Side drawer | Inspect or lightly edit one record | Look at the next row |
-| Detail page | Deep work across several sections | Spend ten minutes here |
-| Master-detail | The list **is** the work queue | Work through records in order |
+| Expando | Peek at a few child rows | Keep scanning the list |
+| Side drawer | Check or lightly edit one record | Look at the next row |
+| Detail page | Do deep work across several sections | Stay here for ten minutes |
+| Master-detail | Work through the list like a to-do queue | Go through records one after another |
 
 > [!NUANCE]
-> - Write the decision down as a discriminated union type (`kind: "expando" | "drawer" | "page"`). A type forces one answer per table.
-> - `cursor-pointer` only when a handler exists. A pointer on a row that does nothing is a broken promise.
+> - Write the choice down as a TypeScript type with one option per table. A type forces you to pick one.
+> - Only show a pointer cursor when a click actually does something.
 
-## One handler, three guards
+## One click handler, with three guards
 
 > [!TLDR]
-> The shared table owns the click handler, and it ignores three things: a click
-> that ends a text selection, a click on an interactive child, and a click inside a portal.
+> The shared table owns the click handler, and it ignores three kinds of click: one that ends a text selection, one on a button or link inside the row, and one inside a menu the row opened.
 
 ![Three guards in order, portal check, interactive child, ended a text selection, each of which stops the click before the row action fires](images/06-row-click-ux/row-click-guards.png)
 
@@ -39,52 +48,46 @@ const handleRowClick = (event: MouseEvent<HTMLTableRowElement>, row: Row<TData>)
   const target = event.target;
 
   if (!(target instanceof Element)) return;
-  if (!event.currentTarget.contains(target)) return; // clicked inside a portal
-  if (hitInteractiveChild(target, event.currentTarget)) return; // button, a, input, role=checkbox
-  if (endedTextSelection()) return; // user was copying a number
+  if (!event.currentTarget.contains(target)) return;            // clicked inside a menu (portal)
+  if (hitInteractiveChild(target, event.currentTarget)) return; // clicked a button, link or checkbox
+  if (endedTextSelection()) return;                             // the user was copying a number
 
   onRowClick?.(row);
 };
 ```
 
 > [!NUANCE]
-> - `instanceof Element`, not `as HTMLElement`: a lucide icon inside a `Button` is an `SVGElement`.
-> - A `DropdownMenu` renders its items in a portal elsewhere in the page. React
->   still bubbles the click to the row, but `rowElement.contains(target)` is false.
-> - `window.getSelection()` runs only inside the handler, never during render, so the table still server-renders.
-> - A "selectable text" cell wrapper is the wrong default on a picker table, where the whole row is the choice. Make it opt-in per column.
+> - Dragging to select a number and letting go counts as a click. Without the text-selection guard, copying a number navigates away.
+> - A dropdown menu's items live elsewhere in the page (a portal), but React still passes their clicks up to the row. The check "is the click actually inside this row?" catches that.
+> - Check `instanceof Element`, not `HTMLElement`: an icon inside a button is an SVG element.
 
 > [!GOTCHA]
-> A shared table that guards double-click but not single click forces every cell
-> with a link or button to hand-write `e.stopPropagation()`. Forget it once and a
-> checkbox click also opens the drawer. Put the guard in the table, then delete
-> every `stopPropagation` from your cells - shadcn's `Checkbox` renders a
-> `button role="checkbox"`, which the selector already matches.
+> If the shared table does not guard clicks on buttons inside the row, every cell with a button has to stop the click itself.
+> Forget it once and ticking a checkbox also opens the drawer.
+> Put the guard in the shared table, then delete every hand-written click-stopper from your cells.
 
 ## Expando: peek at child rows
 
 > [!TLDR]
-> TanStack's expanding feature holds the state. Keep `ExpandedState` yourself to
-> force single-open, and let `getRowCanExpand` decide which rows can open at all.
+> Let TanStack track which rows are open, allow only one open at a time, and let only rows that actually have children show an arrow.
 
 > [!STEPS]
-> 1. **Gate with `getRowCanExpand`.** A working order with no fills shows no chevron and does not look clickable.
-> 2. **Force one open.** `keepSingleOpen` finds the id that turned on and drops the rest. Note `ExpandedState` can be `true`, meaning "all".
-> 3. **Render a real chevron `Button`.** That is what keyboard and screen reader users operate; the row click is a bigger target on top.
-> 4. **Render the sub-row as a second `TableRow`** with `colSpan={row.getVisibleCells().length}`, so hidden columns do not break it.
+> 1. **Decide which rows can open** with `getRowCanExpand`. A working order with no fills shows no arrow and does not look clickable.
+> 2. **Keep one open at a time.** Opening a row closes the previous one.
+> 3. **Give the arrow a real `Button`.** That is what keyboard and screen-reader users use; clicking the row is a bigger target on top.
+> 4. **Draw the children as a second row** whose single cell spans every visible column.
 
 > [!NUANCE]
-> - The guard recognises the chevron button, so clicking it does not toggle twice.
-> - `aria-expanded` goes on the chevron, not the row - it is the element the user operates.
-> - Heavy children: let the sub-row fetch on mount and show `Skeleton` rows.
+> - The click guard recognises the arrow button, so clicking it does not open and close in one go.
+> - `aria-expanded` (which tells screen readers "open" or "closed") goes on the arrow button, not the row.
 
 ![Orders blotter with ORD-118001 expanded, showing the nested fills table on a muted background and the rotated chevron; the working order below it has no chevron](images/06-row-click-ux/expando-open.png)
 
-## Side drawer: the open id lives in the URL
+## Side drawer: keep the open row in the URL
 
 > [!TLDR]
-> Whatever a click opens, its id belongs in the URL - so reload and sharing work.
-> Write it with `replace: true` and `preventScrollReset: true`.
+> Whatever a click opens, put its id in the URL.
+> Then refreshing keeps it open and a colleague can open the same record from a link.
 
 ```ts
 const open = (id: string) =>
@@ -95,80 +98,67 @@ const open = (id: string) =>
 ```
 
 > [!NUANCE]
-> - The updater copies existing params, so filters and sort survive.
-> - `replace: true`: the back button leaves the page instead of replaying every drawer opened.
-> - `preventScrollReset: true`: without it, every row click on a page with scroll restoration yanks the list to the top.
-> - Drawers that keep the open id in component state are neither shareable nor reload-safe.
-> - `useLastNonNull` keeps the last record rendered while the `Sheet` slides closed, so it does not slide out empty.
-> - The URL only opens ids in the rows on screen. Shared links that must always work fetch by id on load.
+> - Copy the existing params first, so the filters and sort survive.
+> - `replace: true` stops each opened drawer adding a Back-button step.
+> - `preventScrollReset: true` stops the list jumping to the top on every click.
+> - A drawer that remembers its row in component state closes on refresh and cannot be shared.
+> - Keep drawing the last record while the drawer slides shut, or it slides out empty.
 
 > [!INTERVIEW]
-> - *Why do the drawer's Previous and Next buttons matter?* A `Sheet` blocks the
->   list behind it. Without them, walking the list is close, click, close, click.
->   Walk `table.getRowModel().rows`, so "next" means the next row on screen.
+> - *Why add Previous and Next buttons to the drawer?* The drawer covers the list, so without them walking the list means close, click, close, click.
 
 ![After pressing Next the drawer shows POS-00004, the highlight has moved to that row, and the location caption reads ?position=POS-00004](images/06-row-click-ux/drawer-url-param.png)
 
-## Detail page: a real link, then a row click
+## Detail page: a real link first
 
 > [!TLDR]
-> A row that navigates still needs a real anchor in its first cell. The row click
-> is the convenience layer on top.
+> If a row goes to another page, its first cell still needs a real link.
+> Clicking anywhere on the row is a convenience on top.
 
 > [!NUANCE]
-> - A real `Link` gives cmd-click and middle-click new tabs, "Copy link address",
->   and a link announcement for screen readers. A bare `onClick` that calls `navigate()` breaks all three.
-> - Clicking the link does not also fire the row action, because `a` matches the interactive-child guard.
-> - Back returns to the exact list only because filters, sort and page live in the URL (part 2). Pass `from` in link state for the back link.
+> - A real link lets people cmd-click or middle-click to open a new tab, right-click to copy the address, and hear "link" on a screen reader. A click handler that navigates gives none of that.
+> - Clicking the link does not also trigger the row, because the guard ignores links.
+> - Back returns to the exact same list only because the filters and page live in the URL (part 2).
 
 ![Order detail page for a rejected order: a back link to Orders, the status badge, a rejection alert, the order facts card and an empty fills card](images/06-row-click-ux/detail-page.png)
 
-## Single click vs double click
+## Single click and double click
 
 > [!TLDR]
-> If single click selects, check `event.detail` and act instantly. If both clicks
-> open something, you need a timer - and every single click gets 220 ms slower.
+> If one click selects and a double click opens, you can act instantly.
+> If both open something, every single click has to wait to see whether a second is coming.
 
 ![Two timelines: Pattern A selects the row at 0 ms, Pattern B parks the click in a 220 ms timer before the drawer opens](images/06-row-click-ux/single-vs-double-click.png)
 
 > [!STEPS]
-> 1. **Pattern A: click selects, double-click opens.** A double click fires click, click, dblclick; skip clicks where `event.detail > 1` so the second click does not untoggle.
-> 2. **Keyboard clicks report `detail === 0`,** so they pass the check.
-> 3. **Pattern B: click opens drawer, double-click opens page.** The first click is parked in a timer; a double click clears it. Clean up on unmount.
-> 4. **Always ship a visible alternative.** A link cell or an "Open" item in the row menu.
+> 1. **Click selects, double click opens.** A double click sends two clicks first; ignore the second one (`event.detail > 1`) so it does not un-select.
+> 2. **Click opens a drawer, double click opens a page.** Now the first click must wait about 220ms for a possible second one.
+> 3. **Always offer a visible way too**, like a link or an "Open" menu item.
 
 > [!NUANCE]
-> - Double-click is undiscoverable and missing on touch.
-> - The OS double-click window is often longer than your timer, so users still misfire.
-> - Recommendation: Pattern A, or no double click at all.
+> - Double click is hard to discover and does not exist on touch screens.
+> - Prefer the first pattern, or no double click at all.
 
 ## Keyboard, master-detail and styling
 
 > [!TLDR]
-> A `TableRow` with `onClick` is invisible to the keyboard. Add a real control in
-> the first cell, make clickable rows focusable, and handle Enter and Space.
+> A clickable row is invisible to the keyboard unless you make it focusable and handle Enter and Space.
 
 > [!NUANCE]
-> - `tabIndex={0}` only when the row is clickable. Check `target === currentTarget`
->   in the keydown handler so Enter on the chevron does not also fire the row action.
-> - Focus ring: `focus-visible` (mouse users never see it) and `ring-inset` (the scroll container clips an outer ring).
-> - Master-detail: one `?sel=` param is the whole state. Compute the fallback (first row)
->   during render instead of writing it back in an effect - no flash of an empty pane,
->   and server and browser pick the same record.
-> - The end state: one declarative `rowAction={{ single: "select", double: "navigate" }}`
->   prop. The table picks the mechanics, so nobody adds a 220 ms delay to a select-only table by accident.
+> - Put `tabIndex={0}` only on rows that do something. In the keyboard handler, only act if the row itself is focused, so Enter on the arrow does not also open the row.
+> - Show the focus ring only for keyboard users (`focus-visible`), and draw it inside the row, or the table's scroll box cuts it off.
+> - Master-detail: one `?sel=` param in the URL is the whole state. If it is missing, choose the first row while drawing, rather than writing it into the URL afterwards, which causes a flash of an empty panel.
+> - The end goal is one prop per table, like `rowAction={{ single: "select", double: "navigate" }}`, so the table handles the mechanics and nobody reinvents them.
 
 | Style | Why |
 | --- | --- |
-| `hover:bg-muted/50` lighter than selected `bg-muted` | The active row stays distinct under a moving mouse |
-| `border-b-0` on an expanded parent | Joins it to its sub-row |
-| Urgency rail as inset `box-shadow` | A 4px `border-left` on one cell shifts layout |
-| Drawer `sm:max-w-md` | The default `sm:max-w-sm` is tight for financial data |
-| `select-none` on picker rows | The whole row is the choice |
+| Hover lighter than selected | The open row stays obvious while the mouse moves |
+| No line between a row and its children | They read as one unit |
+| A red edge drawn as a shadow, not a border | A border would push the row's content sideways |
+| A wider drawer | The default is cramped for financial data |
 
 > [!WIN]
-> One guarded handler in the shared table, ids in the URL, real links for real
-> navigation, and a single prop that states each table's intent.
+> One guarded click handler in the shared table, the open record in the URL, real links for real navigation, and one clear setting per table.
 
 ```quiz
 [

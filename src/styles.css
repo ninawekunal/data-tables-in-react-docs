@@ -94,6 +94,7 @@ body {
 
 @media (max-width: 640px) {
   .prose { font-size: 18px; line-height: 1.6; }
+  .prose pre { font-size: 0.72rem; padding: 0.85rem 0.9rem; }
 }
 
 .prose h2,

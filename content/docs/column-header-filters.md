@@ -9,28 +9,40 @@ minutes: 16
 
 ## The big picture
 
+> [!TERMS]
+> - **Header filter** - a filter you open by clicking a column's title, like in a spreadsheet.
+> - **Popover** - a small floating panel that opens next to what you clicked.
+> - **Draft** - your in-progress choices inside the popover, not yet applied.
+> - **Commit / Apply** - turning the draft into the real filter the table uses.
+> - **Chips** - small removable tags under the toolbar, one per active filter.
+> - **Serializer** - a function that turns an object into text, here the `?key=value` part of a URL.
+> - **ISO date** - a date written as `2026-09-17`, year first.
+
 > [!TLDR]
-> The title opens the filter, a small button sorts. Each popover drafts locally and
-> commits on Apply. One page-owned filter object feeds every surface through one serializer.
+> Click a column title to filter it; a small separate button sorts it.
+> Each popover keeps a draft and applies it once on "Apply".
+> One filter object, owned by the page, feeds every place that shows or changes filters.
 
 ![The Trade orders blotter with filterable column headers: each filterable title has a funnel and a separate sort button, and plain headers sit at the same height](images/07-column-header-filters-popover/default.png)
 
-| Surface | Reads | Writes |
+Everyone who has used a spreadsheet knows the move: click the column header, tick two values, done.
+A header filter sits right where your eyes already are, so nobody has to translate "this column" into "that field in a form".
+
+| Place | Reads | Changes |
 | --- | --- | --- |
-| Header popovers | `filters[key]` | `updateFilters({ key })` on Apply |
-| "All filters" panel | A draft copy of `filters` | `updateFilters(draft)` on Apply |
-| Chips row | `buildChips(filters)` | The patch that removes one value |
-| URL, list request, CSV, query key | One serializer | - |
+| Header popovers | Its own filter key | Its own key, on Apply |
+| "All filters" panel | A draft copy of everything | Everything, on Apply |
+| Chips row | Every active filter | Removes one value |
+| URL, data request, export | Everything, through one serializer | - |
 
-A header filter sits where the eyes already are, so nobody translates "this column"
-into "that field in a form". It is the wrong tool for cross-column OR logic and for
-saved views, which snapshot the whole object and belong in the toolbar.
+> [!NUANCE]
+> Header filters are the wrong tool for "working orders OR anything from my desk" (that crosses columns) and for saved views (those belong in the toolbar).
 
-## Design the state before the UI
+## Decide the shape of the filters first
 
 > [!TLDR]
-> One plain object, one key per thing a user can narrow. Strings, numbers, string
-> arrays or `null` - so it survives a URL round trip and a server render.
+> Before any UI, write one plain object with one key per thing a user can narrow.
+> Only strings, numbers, lists of strings and `null`, so it survives being put into a URL and read back.
 
 ```ts
 export type OrderFilters = {
@@ -38,132 +50,114 @@ export type OrderFilters = {
   statuses: OrderStatus[];
   quantityMin: number | null;
   quantityMax: number | null;
-  submittedFrom: string | null; // ISO date, "2026-09-17"
+  submittedFrom: string | null; // "2026-09-17"
   submittedTo: string | null;
 };
 ```
 
 > [!NUANCE]
-> - `countActiveFilters` counts **groups**, not values. A min and a max together are one active filter.
-> - No `Date` objects in state. `Date` exists only inside the date popover.
+> - Count active filters by group: a minimum and a maximum together count as one filter.
+> - No `Date` objects in here. Dates are text; `Date` only exists inside the date picker.
 
 ## The filter header
 
 > [!TLDR]
-> One click target cannot mean both sort and filter. A sort is one click, so it
-> survives a small target. A filter is multi-step, so it gets the title.
+> One click target cannot mean both "sort" and "filter".
+> Sorting is one click, so it can live on a small button.
+> Filtering takes several steps, so it gets the big target: the title.
 
 > [!STEPS]
-> 1. **Title is the popover trigger.** Children receive `close` (dismiss after Apply) and `open` (gate fetching).
-> 2. **Indicator shows state.** Muted funnel when inactive; `text-primary` title and a count `Badge` when active.
-> 3. **Sort is a separate icon button** that shows direction, because a column can be sorted and filtered at once.
-> 4. **Each body marks its own control with `autoFocus`.** Radix would otherwise focus the first tabbable element - for the calendar, a preset button.
+> 1. **The title opens the popover.** The popover can close itself after Apply, and knows when it is open so it can load options.
+> 2. **The funnel shows the state.** Grey when off; the title turns coloured with a count badge when on.
+> 3. **Sort gets its own small button**, which shows the direction, because a column can be sorted and filtered at once.
+> 4. **Each popover chooses where the cursor starts**, so keyboard users land on the right control.
 
 > [!NUANCE]
-> - No `aria-label` on a trigger with visible text: it would replace the title, and
->   voice-control users say the title they see. Add context in a visually hidden
->   span, so it reads "Status, filter, 2 active".
-> - The icon-only trigger for narrow columns is the exception - it has no visible text, so it needs a label.
-> - A filtered table that does not look filtered reads as broken data.
-> - If sorting lives in a toolbar popover instead, the active sort becomes invisible once it closes. Add a sort chip.
+> - Do not add an `aria-label` to a button that already shows text. It replaces what screen readers and voice control hear. Add extra words in hidden text instead, so it reads "Status, filter, 2 active".
+> - A table that is filtered but does not look filtered reads as missing data.
 
 ![Orders blotter with the Symbol popover open under its title, the sort icon button beside the title and the option list loaded](images/07-column-header-filters-popover/symbol-popover-open.png)
 
 ## Draft, Apply, Clear
 
 > [!TLDR]
-> In a server-driven table, every committed tick is a request and a history entry.
-> Draft in `useState`, commit once on Apply, and let Escape or an outside click discard.
+> If every tick applied immediately, four ticks would mean four server requests and four Back-button steps.
+> So each popover keeps a draft, applies it once, and throws it away on Escape or a click outside.
+
+> [!ANALOGY]
+> It is a shopping basket, not a vending machine.
+> You gather what you want, then pay once at the till.
 
 ![Committing on every tick fires one request and one history entry per tick, while a draft that commits on Apply fires one request, and Escape or an outside click discards the draft by unmounting the body](images/07-column-header-filters-popover/draft-apply-commit.png)
 
 > [!NUANCE]
-> - There is no effect that resets the draft on open. `PopoverContent` unmounts its
->   children on close, so the body mounts fresh and `useState` re-reads the
->   committed value. Discard-on-escape is the same mechanism. `forceMount` would break both.
-> - A popover's Clear resets only its **draft**. Table-level "Clear all" lives with
->   the chips. Mixing the two confuses users.
-> - Hide Clear when there is nothing to clear.
+> - No special reset code is needed. The popover's content is removed when it closes, so next time it starts fresh from the applied filter.
+> - A popover's "Clear" clears only its own draft. "Clear all" lives with the chips. Mixing them up confuses people.
 
-## Searchable options, ranges and dates
+## Long option lists, ranges and dates
 
 > [!TLDR]
-> Big option lists come from the server, lazily, from the **unfiltered** baseline.
-> Ranges draft as strings. Dates cross into `Date` only inside the popover.
+> Long lists load from the server the first time a popover opens, and come from **all** the user's data, not the filtered rows.
+> Number ranges keep what was typed as text until Apply.
+> Dates only become `Date` objects inside the calendar.
 
 > [!NUANCE]
-> - The body takes a hook, `useOptions(enabled)`, not an options array. `enabled: open`
->   means no request until the popover opens; `staleTime: Infinity` makes the second open instant.
-> - Options from filtered rows collapse to the one symbol you picked, so you can never add a second.
-> - Selected items sort first by the **committed** value, not the draft - or every tick moves the row out from under the cursor.
-> - cmdk `keywords` let "nvidia" find `NVDA`. The `Checkbox` is decoration; the `CommandItem` is the control.
-> - An options error renders with retry, never as an empty list. "No symbols" and "the request failed" are different facts.
-> - Range drafts are two strings, because a half-typed input is not a number. Parse and validate on every render - never store the parsed value.
-> - One `error` value drives `aria-invalid`, the message and the disabled Apply.
+> - If options came from the filtered rows, picking one symbol would leave only that symbol to pick.
+> - Put already-applied items at the top of the list - using the applied value, not the draft, or rows jump under the cursor as you tick.
+> - Let "nvidia" find `NVDA` by giving each option extra search words.
+> - If the options fail to load, say so and offer a retry. An empty list means "nothing exists", which is a different fact.
+> - A half-typed number like "1e" is not a number yet, so keep the text and check it each time, instead of storing a number.
 
 > [!GOTCHA]
-> `new Date("2026-09-17")` parses as **UTC midnight**, which is still the 16th in New
-> York - so the calendar highlights the wrong day. Convert with local calendar
-> fields (`new Date(y, m - 1, d)`), store ISO date strings, and let the BFF decide
-> where a trading day starts. Compute presets like "This week" only inside `onClick`,
-> so nothing in render reads the clock.
+> `new Date("2026-09-17")` means midnight in **UTC**, the world's reference clock - which is still the evening of the 16th in New York.
+> So the calendar highlights the wrong day for American users.
+> Build dates from year, month and day in local time, store plain `2026-09-17` text, and let the server decide when a trading day starts.
 
 ![Submitted popover with Today and This week presets above a range calendar, three days selected, and the Clear and Apply footer](images/07-column-header-filters-popover/date-range-popover.png)
 
-## One object, many surfaces
+## One object, many places
 
 > [!TLDR]
-> The usual bug is drift: a chip says one thing and a header badge another. The fix
-> is to have nothing to keep in sync - one object, one write path.
+> The usual bug is two places disagreeing: a chip says one thing and a header badge another.
+> The fix is to have only one copy, so there is nothing to keep in sync.
 
 ![The page owns one OrderFilters object that header popovers, the All filters panel and the chips row read and write, and one serializer turns it into the URL, the list request, the CSV link and the query key](images/07-column-header-filters-popover/one-filter-object.png)
 
 > [!STEPS]
-> 1. **Own it in the page.** Expose `filters` and `updateFilters(patch)` through context.
-> 2. **Reset `page` inside `updateFilters`.** Page 7 of the unfiltered list does not exist in a list of 12.
-> 3. **Build chips as a pure function.** Each chip carries the patch that removes only its value.
-> 4. **Give the panel its own draft.** Same rule one level up: copy on open, commit on Apply.
+> 1. **The page owns the object** and shares it, plus one `updateFilters` function, with everything below it.
+> 2. **`updateFilters` also resets to page 1**, because page 7 of the full list does not exist in a list of 12.
+> 3. **Chips are worked out from the object**, each knowing how to remove only its own value.
+> 4. **The "All filters" panel keeps its own draft** too, applied once.
 
 > [!NUANCE]
-> - Use context, not a `getColumns(filters)` factory. A columns array rebuilt on every
->   filter change gives each header a new identity and React remounts it.
-> - Pin option pickers inside the panel to `side="bottom" align="start"`, so a picker
->   never covers the next field the user wants to fill.
+> - Share the object through React context rather than rebuilding the columns with it. Rebuilt columns make every header restart, closing any open popover.
 
 ![Blotter with Symbol, Status and Quantity badges active, the matching chips row, and the All filters sheet open showing the same symbols, status and minimum quantity](images/07-column-header-filters-popover/all-filters-panel.png)
 
-## URL, BFF and TanStack column filters
+## Into the URL and to the server
 
 > [!TLDR]
-> One function writes the object to `URLSearchParams`; one zod schema reads it back,
-> on the client **and** in the BFF loader.
+> One function writes the filters into the URL; one schema reads them back - in the browser and on the server.
 
 > [!NUANCE]
-> - Canonical output: skip defaults, fixed key order, sorted list values. Ticking
->   NVDA then AAPL gives the same string as the reverse, so equivalent views share a cache entry.
-> - Every field has a `.catch`, so a hand-edited `?status=banana` degrades to "no filter", not an error page.
-> - The list query, prefetch and CSV link use one serializer, so the export cannot encode a different view than the screen.
-> - For a **client-side** table, TanStack's `filterFn: "arrIncludesSome"` plus
->   `getFacetedUniqueValues` gives options with counts for free, and the same header works.
-> - For a server table, `ColumnFiltersState` in the middle means a mapper each way
->   with `value: unknown` at every step. Skip it.
+> - Always write the same filters the same way: skip defaults, fixed key order, sorted lists. Then "NVDA then AAPL" and "AAPL then NVDA" make the same URL and share a cache.
+> - Someone can type anything into a URL. A nonsense value like `?status=banana` should quietly mean "no status filter", not an error page.
+> - The data request, the preload and the export link all use the same writer, so the export always matches the screen.
+> - For a table whose rows are all in the browser, TanStack's own column filters work well and give you option counts for free.
+> - For a server table, TanStack's filter state is just an extra, untyped layer to translate in and out of. Skip it.
 
 > [!INTERVIEW]
-> - *What did the unused filter API teach?* A shared kit shipped a second header-filter
->   API bound to TanStack column filters. No feature adopted it; it became dead code.
->   Build the abstraction after the second real call site, not before the first.
+> - *What did an unused filter API teach?* A shared table kit shipped a second filter API that no page ever used, and it became dead code. Build the shared version after the second real use, not before the first.
 
 | Styling rule | Value |
 | --- | --- |
-| Filter and plain headers | Same `h-8`, `text-xs`, `font-medium` |
-| Popover widths | `w-64` picker, `w-72` range, `w-auto` calendar |
-| Alignment | `align="start"`, so the popover edge lines up with its title |
-| Focus ring | Keep it; switch to inset if a sticky header clips it |
-| `header` column prop | The component itself, so its identity never changes |
+| Filter headers and plain headers | Same height and text size |
+| Popover widths | Narrower for a list, wider for a range, auto for the calendar |
+| Alignment | Popover's left edge lines up with its title |
+| Focus ring | Keep it; draw it inside if the sticky header clips it |
 
 > [!WIN]
-> Filter on the title, sort on a button, draft locally, commit on Apply - and every
-> surface, the URL and the export agree because there is only one object.
+> Filter from the title, sort from a small button, draft and apply once - and every chip, badge, URL and export agrees, because there is only one filter object.
 
 ```quiz
 [

@@ -9,30 +9,42 @@ minutes: 15
 
 ## The big picture
 
+> [!TERMS]
+> - **Row selection** - ticking checkboxes to pick rows for a bulk action.
+> - **Row id** - a value that names a row forever, like an order number. Unlike its position, it never changes.
+> - **Bulk action** - one button that acts on every ticked row: cancel, reassign, export.
+> - **Bubbling** - a click on an inner element also reaches every element around it, unless something stops it.
+> - **Controlled state** - state you hold yourself and hand to a component, instead of letting it keep its own.
+> - **Server pagination** - the browser only ever holds the current page; the server has the rest.
+> - **React Compiler** - a build tool that adds memo-style caching to your components automatically.
+
 > [!TLDR]
-> A checkbox column takes ten minutes. Making selection survive sorting, paging,
-> search and a build-tool upgrade is the real work - and almost all of it comes
-> down to keying selection by a real id.
+> A checkbox column takes ten minutes.
+> Making the ticks survive sorting, paging, search and a build-tool upgrade is the real work.
+> Nearly all of it comes down to one thing: remember ticks by the row's id, not its position.
 
-The example is the server-driven Trade orders blotter from part 2. Traders want
-"Cancel orders", "Reassign trader" and "Export selected". Only `working` and
-`partially_filled` orders can be cancelled, and that one rule shapes half the design.
+Our example is the trade orders table from part 2.
+Traders want to tick rows and press "Cancel orders", "Reassign trader" or "Export selected".
+Only orders that are still `working` or `partially_filled` can be cancelled - and that one rule shapes half the design.
 
-| Problem | Where it bites | Fix |
+| Problem | When you notice it | Fix |
 | --- | --- | --- |
-| Selection follows position | Any sort, refetch or page change | `getRowId` |
-| Near-miss click opens the row | Clickable rows | Cell-filling wrapper stops propagation |
-| "Why can't I tick this?" | Non-actionable rows | Disabled checkbox plus a tooltip reason |
-| Count resets on page 2 | Server pagination | Read the `rowSelection` map, not the row model |
-| Bar frozen at "0 selected" | React Compiler | `"use no memo"`, or primitive props |
+| The tick jumps to another row | After a sort, refresh or page change | Give TanStack the real row id |
+| Missing the checkbox opens the row | Tables where a row click does something | Make the whole cell swallow the click |
+| "Why can't I tick this one?" | Rows that cannot be acted on | Greyed checkbox plus a tooltip saying why |
+| The count resets on page 2 | Server pagination | Count from the tick list, not the page |
+| The bar is stuck on "0 selected" | After turning on React Compiler | Opt that component out, or pass plain values |
 
-## The select column and its hit target
+## The checkbox column, and a bigger target
 
 > [!TLDR]
-> A column with no data, fixed at 40px, not sortable or hideable, with a
-> cell-filling wrapper that swallows the click so a near miss never opens the order.
+> The checkbox sits inside a wrapper that fills the whole cell and stops the click there.
+> A near miss then does nothing, instead of opening the order.
 
 ![Two copies of the same row: with the handler on the checkbox a near-miss click bubbles to TableRow and opens the detail, with the handler on a cell-filling wrapper both clicks stop there](images/04-row-selection-checkboxes/select-cell-click-path.png)
+
+A 16px checkbox inside a clickable row is a trap.
+Miss it by two pixels and the click lands on the cell's padding, bubbles up to the row, and opens the order.
 
 ```tsx
 export const SelectCell = ({ row }: SelectCellProps) => (
@@ -48,45 +60,39 @@ export const SelectCell = ({ row }: SelectCellProps) => (
 ```
 
 > [!NUANCE]
-> - `stopPropagation` belongs on the **wrapper**. A click in the padding never
->   touches the checkbox, so a handler there never runs.
-> - `-m-2 p-2` cancels the cell padding and re-adds it inside, so the wrapper covers the cell.
-> - To make a near miss count as a tick, toggle only when `e.target === e.currentTarget`,
->   or you double-toggle.
-> - Name the order in each `aria-label`, not "checkbox, checkbox, checkbox".
-> - `size`, `minSize` and `maxSize` all 40, sorting and hiding off. A visibility menu with a "select" entry is a bug report waiting to happen.
-> - Reusing `id: "select"` lets a feature swap in radio buttons for a picker dialog - same slot, different control.
+> - The click-stopper belongs on the **wrapper**. A click in the padding never touches the checkbox, so a handler on the checkbox never runs.
+> - `-m-2 p-2` pulls the wrapper out to the cell's edges and puts the spacing back inside it.
+> - Name the order in each label, so a screen reader says "Select order ORD-118204", not "checkbox, checkbox, checkbox".
+> - Fix the column at 40px and switch off sorting and hiding for it.
 
-## Row identity: getRowId or nothing works
+## Remember ticks by id, not position
 
 > [!TLDR]
-> TanStack stores selection as `{ [rowId]: true }`. Without `getRowId` the id is the
-> array index, so a tick belongs to "row 0", whatever row 0 is now.
+> TanStack stores ticks as a list like `{ "row-id": true }`.
+> If you do not tell it the real id, it uses the row's position - and a position points at a different order after every sort.
+
+> [!ANALOGY]
+> It is like remembering a person as "whoever sits in seat 3".
+> The moment people change seats, you are talking to someone else.
 
 > [!STEPS]
-> 1. **Tick ORD-118204 at row 0.** State: `{ "0": true }`.
-> 2. **Sort by symbol.** The server returns a new array; row 0 is now ORD-117950.
-> 3. **State is unchanged.** ORD-117950 now looks ticked.
-> 4. **Press "Cancel orders".** You cancel an order nobody selected.
+> 1. **You tick the first row, order ORD-118204.** TanStack stores `{ "0": true }` - "row 0 is ticked".
+> 2. **You sort by symbol.** The server sends a new list; row 0 is now ORD-117950.
+> 3. **Nothing updated the ticks.** So ORD-117950 now shows as ticked.
+> 4. **You press "Cancel orders".** You cancel an order nobody chose.
 
-> [!NUANCE]
-> - It bites whenever `data` changes: a server sort, a refetch, a page change.
-> - Selections seeded from outside the table, like ids in a URL, land on whatever
->   rows sit at those indexes.
-> - With `getRowId: (row) => row.id` the key means the same order on every page and under every sort.
+The fix is one line: `getRowId: (row) => row.id`.
+Now the tick list says `{ "ORD-118204": true }`, which means the same order on every page and under every sort.
 
 > [!INTERVIEW]
-> - *When do you lift `rowSelection` out of the table?* When something outside
->   needs it - a URL seed, a side panel. A reusable wrapper is controlled only when
->   **both** `rowSelection` and `onRowSelectionChange` are passed.
-> - *Does every list need TanStack for this?* No. A non-table list is often simpler
->   with a `Set<string>` hook: `isChecked`, `toggle`, `clear`, `hasAny`.
+> - *When do you hold the tick list yourself?* When something outside the table needs it, like a side panel or ticks loaded from the URL.
+> - *Does every list need TanStack for this?* No. For a simple list, a small hook around a JavaScript `Set` of ids is simpler.
 
-## Rows that cannot be selected
+## Rows you cannot tick
 
 > [!TLDR]
-> `enableRowSelection` takes a per-row function. A refused row must **look**
-> refused and say why: disabled checkbox plus a tooltip.
+> Tell TanStack which rows may be ticked.
+> A refused row must look refused and say why: a greyed checkbox plus a tooltip.
 
 ```ts
 export const isCancellable = (order: TradeOrder): boolean =>
@@ -96,39 +102,36 @@ useReactTable({ enableRowSelection: (row) => isCancellable(row.original) });
 ```
 
 > [!NUANCE]
-> - The rule lives in its own file because the bulk bar needs it too.
-> - Wrap the disabled checkbox in a `span` for the tooltip. A disabled button fires
->   no pointer or focus events, so a tooltip on it never opens.
-> - The header checkbox only counts selectable rows.
+> - Keep the rule in its own file, because the bulk action bar needs it too.
+> - A disabled button ignores the mouse completely, so a tooltip placed on it never opens. Put the tooltip on a `span` wrapped around it.
+> - The "tick all" checkbox in the header only counts rows that can be ticked.
 
 ![A filled order row with a greyed-out checkbox and the tooltip "Order is filled and cannot be cancelled"](images/04-row-selection-checkboxes/disabled-row-tooltip.png)
 
 ## The bulk action bar
 
 > [!TLDR]
-> Show an action only when it applies to **every** selected row. Confirm
-> destructive ones, and clear the selection only when the mutation succeeds.
+> Only show an action if it works for **every** ticked row.
+> Ask before doing anything destructive, and only clear the ticks once the action succeeded.
 
 > [!STEPS]
-> 1. **Re-check eligibility in the bar.** The blotter is live: an order can fill after you tick it, and TanStack never drops an id on its own.
-> 2. **Confirm destructive actions.** Label the dismiss "Keep orders" - next to "Cancel orders", a dismiss labelled "Cancel" is a coin flip.
-> 3. **Clear on success only.** On failure the ticks stay so the trader can retry without re-ticking twelve rows.
-> 4. **Invalidate and refetch.** Cancelled rows come back with their new status.
-> 5. **Let the server re-check.** The client check is a courtesy, not a guard.
+> 1. **Check again in the bar.** Prices move: an order can fill after you ticked it, and TanStack never removes a tick by itself.
+> 2. **Confirm destructive actions.** Label the "never mind" button "Keep orders". Next to "Cancel orders", a button called "Cancel" is a coin flip.
+> 3. **Clear the ticks only on success.** If the request fails, the ticks stay, so the trader can retry without re-ticking twelve rows.
+> 4. **Refresh the list** so cancelled orders reappear with their new status.
+> 5. **Let the server check too.** The check in the browser is a courtesy; the server's check is the real guard.
 
 > [!NUANCE]
-> - `resetRowSelection(true)` resets to an empty map, not to the seeded initial state.
-> - A button that silently skips part of the selection is worse than no button.
-> - Put the bar in a fixed-height toolbar slot (it replaces the search box). If it
->   pushes the table down, the second click lands on a different order.
+> - A button that quietly skips some of the ticked rows is worse than no button.
+> - The bar swaps in for the search box in a slot of fixed height. If it pushed the table down, the trader's next click would land on a different row.
 
 ![The bulk bar showing 3 selected with Cancel orders, Reassign trader, Export selected and Clear, and the confirm dialog open over the table](images/04-row-selection-checkboxes/cancel-confirm-dialog.png)
 
-## Selection across server-side pages
+## Ticks across pages
 
 > [!TLDR]
-> Under `manualPagination`, `getSelectedRowModel()` only sees the current page. The
-> cross-page truth is the `rowSelection` map itself.
+> When the server does the paging, the table only holds the current page.
+> TanStack's "selected rows" helper can only see that page, so count from the tick list itself.
 
 ![Three orders ticked on page 1, then page 2 loaded: getSelectedRowModel returns 0 rows because it only sees the page, while the id-keyed rowSelection map still returns 3 ids](images/04-row-selection-checkboxes/page-scoped-vs-id-keyed-selection.png)
 
@@ -140,48 +143,39 @@ const selectedIds = getSelectedIds(table.getState().rowSelection);
 ```
 
 > [!NUANCE]
-> - Footers and export buttons built on `getFilteredSelectedRowModel()` quietly
->   show only the current page's count. This is a common production bug.
-> - Ids say what is selected, not what the rows contain. Either send ids to the
->   server, or fold each loaded page into an `id -> row` map.
-> - That map decides what to **show**, never what is **allowed**. An id seeded from
->   a URL may never have loaded; unknown means "do not offer the action".
-> - The header checkbox is page-scoped. "Select all 1,204 matching" sends the filter
->   plus `excludeIds`, not 1,204 ids.
+> - A footer that says "3 selected" on page 1 and "0 selected" on page 2 is a very common bug. It is reading the page, not the tick list.
+> - An id tells you *which* rows, not *what is in them*. Either send the ids to the server, or remember each row as its page loads.
+> - That memory can decide what to **show**, never what is **allowed**. An id you never loaded means "do not offer the action".
+> - "Select all 1,204 matching" should send the filter plus the rows to leave out, not 1,204 ids.
 
 ## Search, tabs and export
 
 > [!TLDR]
-> Keep ticks through a search if you say how many are hidden. Clear them when the
-> available actions change. Export exactly the selection.
+> Keep ticks through a search only if you tell the user how many are now hidden.
+> Clear them when the available actions change.
+> Export exactly what was ticked.
 
 > [!NUANCE]
-> - Keeping selection through a search protects "search NVDA, tick all, untick
->   two, clear search". The bar must then read "12 selected - 3 not on this page",
->   or a trader sees nine ticks and cancels twelve orders.
-> - Switching Working to Filled changes what is actionable, so clear the selection
->   - in the tab's event handler, not an effect watching `tab`.
-> - "Export selected" sends `ids` and the server drops the filters. Otherwise a row
->   ticked under an earlier search is filtered out and the trader gets eleven rows
->   after selecting twelve. Scope still applies, so a hand-edited `ids=` cannot
->   pull someone else's orders.
-> - Shift-click range selection: remember the last clicked **id**, not its index,
->   and resolve positions in `table.getRowModel().rows` - what the user sees.
+> - Keeping ticks through a search supports "search NVDA, tick all, untick two, clear the search".
+>   But the bar must then say "12 selected - 3 not on this page", or a trader sees nine ticks and cancels twelve orders.
+> - Moving from the Working tab to the Filled tab changes what can be done, so clear the ticks - inside the tab's click handler.
+> - "Export selected" sends the ids, and the server ignores the current search. Otherwise a row ticked under an earlier search gets filtered out, and the trader gets eleven rows after ticking twelve.
+> - Shift-click to tick a range: remember the last clicked **id**, not its index, because the index goes stale after a sort.
 
 ![Page 2 of the blotter with no ticked rows visible, the bar reading "3 selected - 3 not on this page" and the footer reading "3 of 300 row(s) selected"](images/04-row-selection-checkboxes/cross-page-count.png)
 
-## React Compiler and the frozen bulk bar
+## React Compiler and the stuck "0 selected"
 
 > [!TLDR]
-> TanStack mutates one `table` object in place. React Compiler sees the same
-> reference forever and reuses cached output. Opt out with `"use no memo"`, or pass
-> primitives.
+> TanStack keeps one `table` object and changes it in place, so it is always "the same object".
+> React Compiler sees the same input and reuses the old drawing forever.
+> Opt such components out with `"use no memo"`, or pass them plain values instead.
 
 ![React Compiler caches the bulk bar on the first render with the table prop, then on the next render sees the same table reference and reuses the cached "0 selected" while three rows are ticked](images/04-row-selection-checkboxes/react-compiler-frozen-bulk-bar.png)
 
 ```tsx
 export const OrdersBulkBar = ({ table }: OrdersBulkBarProps) => {
-  "use no memo"; // first statement: the table reference never changes
+  "use no memo"; // must be the first line: the table object never changes identity
 
   const count = getSelectedIds(table.getState().rowSelection).length;
 
@@ -190,21 +184,17 @@ export const OrdersBulkBar = ({ table }: OrdersBulkBarProps) => {
 ```
 
 > [!GOTCHA]
-> The opt-out is per component, and children defined elsewhere do not inherit it.
-> After enabling the compiler, search boxes on every table could not be typed into
-> and footers read "0-0 of 0" over visible rows, because the toolbar and footer
-> took the stable `table` prop. Every component that reads live state off `table`
-> needs its own `"use no memo"`. A bar rendered inline in an opted-out parent is
-> safe only by accident of placement - move it into its own file and it freezes.
+> The opt-out works per component, and children in other files do not inherit it.
+> After turning the compiler on, one team found every search box refused typing and every footer read "0-0 of 0" above visible rows.
+> The toolbar and footer each received the unchanging `table` object.
+> Every component that reads live values from `table` needs its own `"use no memo"`.
+> A bar that happens to work because it lives inside an opted-out parent will freeze the day someone moves it into its own file.
 
 > [!INTERVIEW]
-> - *What is the cleaner long-term fix?* Pass primitives (`selectedIds`, `onClear`).
->   The props change with the selection, and the compiler caches correctly. Only
->   the parent that reads `table` needs the opt-out, and the mistake is visible in review.
+> - *What is the cleaner long-term fix?* Pass plain values like `selectedIds` and `onClear`. They change when the ticks change, so the compiler caches correctly, and only the one parent reading `table` needs the opt-out.
 
 > [!WIN]
-> Selection keyed by id, honest counts on every page, refused rows that explain
-> themselves, and a bar that survives a compiler upgrade.
+> Ticks tied to real ids, honest counts on every page, refused rows that explain themselves, and a bar that survives a compiler upgrade.
 
 ```quiz
 [

@@ -9,104 +9,115 @@ minutes: 17
 
 ## The big picture
 
-> [!TLDR]
-> Virtualization is the last tool, not the first. Count mounted rows and time a
-> render before changing anything - pagination or a render cap usually wins.
+> [!TERMS]
+> - **DOM** - the live tree of elements the browser keeps for your page. Every `<tr>` is a node in it.
+> - **Mounted** - actually present in the DOM right now.
+> - **Virtualization (windowing)** - only mounting the rows you can currently see, and faking the rest with empty space.
+> - **Render cap** - showing the first N rows with a "Show more" button.
+> - **Overscan** - a few extra rows mounted just outside the visible area, so fast scrolling does not show blanks.
+> - **Ref** - React's way to hold a direct handle to a DOM element.
+> - **Layout effect** - code React runs right after changing the DOM, before the screen is painted.
+> - **Memo** - telling React to skip re-drawing a component when its inputs have not changed.
+> - **jsdom** - a fake browser used in tests. It has a DOM but does no layout, so every size is 0.
 
-The Executions tape shows every fill for one trading day: 50,000 rows in one
-scrollable panel, streamed in as the day goes on, and any fill can expand to show
-its parent order. The first version mounted every row and the tab froze.
+> [!TLDR]
+> Virtualization is the last tool to reach for, not the first.
+> Measure first. Most slow tables are fixed by paging or a "Show more" button.
+
+The Executions tape shows every trade fill for one day: 50,000 rows in one scrollable panel, arriving through the day.
+Any fill can expand to show its parent order, so rows are not all the same height.
+The first version put all 50,000 rows in the DOM, and the browser tab froze.
+
+> [!ANALOGY]
+> Virtualization is a train window.
+> The landscape is miles long, but you only ever see one window's worth, and the scenery outside it does not need to exist until you reach it.
 
 ![A decision flow: a paginated list stops at pagination, light rows or a searched list get a render cap, and only an un-paginated list of heavy rows that people scroll through gets virtualized](images/03-virtualized-data-table/virtualize-decision.png)
 
-| Question | If "no" |
-| --- | --- |
-| Is the list un-paginated? | Paginate. One page is all that reaches the DOM |
-| Are the rows heavy? | A render cap is enough |
-| Must the user scroll one continuous list? | Paginate or cap |
+Ask three questions before you virtualize:
 
-Only three "yes" answers earn a virtualizer. Plenty of production table systems
-with dozens of tables never virtualize, on purpose, because every table paginates.
+| Question | If the answer is "no" |
+| --- | --- |
+| Is the list un-paged? | Page it. Only one page ever reaches the DOM |
+| Are the rows heavy (menus, inputs, charts)? | A "Show more" cap is enough |
+| Does the user need one continuous scroll? | Page it or cap it |
+
+Only three "yes" answers earn a virtualizer.
+Plenty of production table systems never virtualize at all, on purpose, because every table pages.
 
 ## Measure before you fix
 
 > [!TLDR]
-> Get two numbers: mounted row count, read straight off the DOM, and render time
-> from a `Profiler`. Then decide.
+> Get two numbers: how many rows are really in the DOM, and how long a render takes.
+> Then decide.
 
 > [!STEPS]
-> 1. **Seed your data.** A seeded PRNG (mulberry32) gives server, browser and tests the same tape.
-> 2. **Count real rows.** Query the DOM, so a virtualizer cannot fake the number.
-> 3. **Time the render.** `Profiler` reports React's time in development builds only - treat it as relative.
-> 4. **Time the interaction.** Layout and paint are invisible to React; measure them separately.
+> 1. **Use the same fake data everywhere.** A seeded random generator makes the server, browser and tests all see the same 50,000 rows.
+> 2. **Count real rows** by asking the DOM directly, so nothing can fake the number.
+> 3. **Time the render** with React's `Profiler`. It only reports in development builds, so compare numbers, do not quote them.
+> 4. **Time the whole interaction** too. React cannot see the browser's layout and paint work.
 
 > [!NUANCE]
-> - A classic trigger: an un-paginated line list where a 500-line document mounted
->   500 rows **and 500 dropdown menus** the moment someone chose "All".
-> - Heavy off-screen DOM taxes the whole page, not just scrolling. Keeping 20 heavy
->   pages mounted in a document viewer made every layout pass roughly 12x slower
->   (about 40 ms versus 3 ms).
+> - A classic trigger: a 500-line list that, when someone picked "All", mounted 500 rows **and 500 dropdown menus** at once.
+> - Heavy off-screen DOM slows the whole page, not just scrolling. Twenty heavy pages kept mounted made every layout pass about 12x slower (roughly 40ms instead of 3ms).
 
 ![The finished Executions tape at the top of the day, with the toolbar reading Mounted rows: 25 of 50,000](images/03-virtualized-data-table/tape-top.png)
 
-## Cheaper alternatives that often win
+## The cheaper fixes that usually win
 
 > [!TLDR]
-> 50,000 fills in memory is fine. 50,000 `<tr>` elements is not. Pagination and a
-> render cap both limit mounted rows without any scroll math.
+> Keeping 50,000 rows *in memory* is fine.
+> Putting 50,000 `<tr>` elements *in the DOM* is not.
+> Paging and a "Show more" cap both fix the second without any scroll maths.
 
 ```tsx
-const [visibleCount, setVisibleCount] = useState(STEP); // STEP = 20
+const [visibleCount, setVisibleCount] = useState(20);
 
-// render fills.slice(0, visibleCount), then a sticky footer:
-<Button onClick={() => setVisibleCount((n) => n + STEP)}>Show 20 more</Button>
+// draw fills.slice(0, visibleCount), then a button stuck to the bottom of the box:
+<Button onClick={() => setVisibleCount((n) => n + 20)}>Show 20 more</Button>
 ```
 
 > [!NUANCE]
-> - The "Show more" button fetches nothing. Only `visibleCount` changes.
-> - Put it `sticky bottom-0` inside the scroll box so it is always reachable.
-> - A deliberate "do not virtualize" call on a 455-row activity feed is a good
->   decision, not laziness: hand-rolled virtualizers are a known maintenance regret.
+> - The button fetches nothing. It only changes a number.
+> - Make it `sticky bottom-0` inside the scroll box, so it is always reachable.
+> - Choosing "no virtualizer" for a 455-row feed is a good decision, not a lazy one. Hand-built virtualizers are a known maintenance headache.
 
 ![The recent fills panel after one click: 40 of 2,676 rows mounted, with the sticky Show 20 more button at the bottom of the box](images/03-virtualized-data-table/render-cap-tab.png)
 
-## Wiring useVirtualizer into a table: spacer rows
+## Virtualizing a table: two spacer rows
 
 > [!TLDR]
-> In a table, window with two spacer rows - one above, one below - so body and
-> sticky header stay in one table layout and share column widths.
+> Mount only the visible rows, and put one empty "spacer" row above them and one below them, each as tall as the rows it stands in for.
+> The scrollbar then behaves as if every row were there.
 
 ![The scroll box holds a sticky header, a tall empty spacer row, the 25 mounted rows, and a second spacer row below them, so the scrollbar reads as 50,000 rows while only 25 exist](images/03-virtualized-data-table/windowed-body-spacer-rows.png)
 
 ```ts
-const items = virtualizer.getVirtualItems();
+const items = virtualizer.getVirtualItems(); // the rows in view, plus overscan
 
-export const getSpacerHeights = (items: VirtualItem[], total: number) => ({
-  paddingTop: items.length > 0 ? items[0].start : 0,
-  paddingBottom: items.length > 0 ? total - items[items.length - 1].end : 0,
-});
-// <SpacerRow height={paddingTop} /> {rows} <SpacerRow height={paddingBottom} />
+const paddingTop = items.length > 0 ? items[0].start : 0;
+const paddingBottom = items.length > 0 ? total - items[items.length - 1].end : 0;
+// <SpacerRow height={paddingTop} /> {visible rows} <SpacerRow height={paddingBottom} />
 ```
 
+Each virtual item knows where it starts and ends, in pixels.
+The gap before the first one and after the last one become the two spacers.
+
 > [!STEPS]
-> 1. **Let the outer box scroll.** shadcn wraps `<table>` in an `overflow-x-auto` div, which captures sticky children; pass `containerClassName="overflow-visible"`.
-> 2. **Key measurements by id.** `getItemKey` returns the fill id, in a `useCallback`, so inserted rows do not inherit the wrong height.
-> 3. **Render spacers `aria-hidden`.** Screen readers skip them.
-> 4. **Virtualize the row model**, not the raw array, if the table uses TanStack Table.
+> 1. **Let the outer box do the scrolling.** shadcn's table wraps itself in its own scrolling box, which would trap the sticky header; switch that inner scroll off.
+> 2. **Key each measurement by the row's id**, not its position, so inserting a row does not give it the wrong height.
+> 3. **Hide spacers from screen readers** with `aria-hidden`.
 
 > [!NUANCE]
-> - The docs' technique - absolutely positioned items with transforms - suits card
->   lists and chat logs. An absolutely positioned `<tr>` leaves table layout; cells
->   stop lining up and you hard-code every width twice.
-> - Compute the window synchronously from `scrollTop`. `IntersectionObserver`
->   callbacks arrive after the frame, and a stale window shows blank content.
->   Blank-but-fast is a worse bug than slow.
+> - The library's docs position each row absolutely. That suits card lists and chat logs.
+>   In a table, an absolutely positioned row leaves the table's layout, so its cells stop lining up with the header.
+> - Work out the visible window straight from the scroll position. Tools that report visibility *later* (after the frame) show blank rows during fast scrolls. Blank-but-fast is worse than slow.
 
-## The scroll element must be state, not a ref
+## The scroll box must be state, not a ref
 
 > [!TLDR]
-> If the virtualizer lives in a child of the scroll box, pass the element down as
-> **state**. A ref is still `null` when the child's layout effect reads it.
+> If the virtualizer lives in a child component, hand it the scroll box through **state**, not a ref.
+> Otherwise the first render shows an empty table.
 
 ![Two timelines side by side: with a ref, the child's layout effect runs before the parent's ref attaches and the body stays empty; with state, the setter runs as the ref, the parent re-renders, and the child attaches to a real element](images/03-virtualized-data-table/scroll-element-ref-vs-state.png)
 
@@ -118,71 +129,58 @@ const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
 
 useVirtualizer({
   getScrollElement: () => scrollElement,
-  initialRect: { width: 1024, height: 600 }, // first window, even on the server
+  initialRect: { width: 1024, height: 600 }, // a guess, so even the first render shows rows
 });
 ```
 
 > [!GOTCHA]
-> React runs layout effects children-first in the same commit it attaches refs.
-> So the child's `useVirtualizer` reads `scrollRef.current` while it is still
-> `null`, attaches no observers, and nothing ever re-runs it - writing to a ref
-> does not render. The symptom is a header over an empty body on first render.
-> A state setter is a valid callback ref: the element's arrival becomes a render.
+> React finishes children before parents.
+> So the child's virtualizer looks for the scroll box *before* the parent has attached its ref, finds nothing, and gives up.
+> Writing to a ref later does not trigger a re-render, so nothing ever tells it to try again.
+> The symptom is a header over an empty body.
+> Passing the state setter as the ref fixes it: when the box appears, React calls the setter, the parent re-renders, and the child gets a real element.
 
 > [!INTERVIEW]
-> - *Why `initialRect`?* Until measured, the virtualizer thinks the viewport is 0px
->   tall and renders nothing - including on the server.
+> - *Why `initialRect`?* Until it has measured anything, the virtualizer assumes the box is 0px tall and shows nothing - including in the server-rendered HTML.
 
-## Variable heights and memoized rows
+## Rows of different heights, and stopping extra re-draws
 
 > [!TLDR]
-> Measure each row with `measureElement`, keep row state in the parent, and
-> compare row props field by field so a keystroke re-renders one row, not all of them.
+> Let the virtualizer measure each row, keep row state in the parent, and compare row inputs field by field so typing in one row redraws one row.
 
 > [!STEPS]
-> 1. **Give every row `data-index` and `ref={virtualizer.measureElement}`.** The estimate is only a seed; a ResizeObserver re-measures on wrap.
-> 2. **Model the detail row as its own item.** A `<tr>` cannot hold a block under its cells; a pure index mapping shifts later fills by one.
-> 3. **Lift expanded state to the parent.** A windowed row unmounts when scrolled away and takes its state with it.
-> 4. **Compare props field-wise.** A per-row `draft` object is rebuilt every render; `memo` with a shallow-equal on that one prop fixes it.
-> 5. **Pass one stable handler that takes an id.** An inline `() => toggle(id)` defeats the memo on every row.
+> 1. **Measure each row.** Give it `data-index` and `ref={virtualizer.measureElement}`. The size you guess up front is only a starting point.
+> 2. **Treat the expanded detail as its own row.** A `<tr>` cannot hold a block underneath its own cells.
+> 3. **Keep "which row is open" in the parent.** A row unmounts when it scrolls out of view and would forget it was open.
+> 4. **Compare row inputs field by field.** A small object rebuilt for every row on every render looks "new" each time, so plain memo never skips anything.
+> 5. **Pass one stable click handler that takes an id.** A fresh `() => toggle(id)` per row also defeats memo.
 
 > [!NUANCE]
-> - `scrollPaddingEnd` must account for the sticky header covering the top 40px.
-> - A pure `selectFills` that returns the **same array** when no filter is active
->   keeps `getItemKey` stable and saves a full recompute.
-> - A parent form that rebuilds every row's buffer object on each keystroke, with
->   identity `memo`, re-renders every mounted row per keystroke. That is a real
->   production bug shape.
+> - Tell the virtualizer about the sticky header (`scrollPaddingEnd`), or "scroll to row" hides the row under it.
+> - When no filter is active, return the **same** array rather than a filtered copy, so the virtualizer does not recalculate everything.
 
 ![Row 5 expanded: the order panel shows the parent order, a note field and a flag button, and the footer reads Row 5 open](images/03-virtualized-data-table/row-expanded.png)
 
-## Finding rows and testing in jsdom
+## Finding rows, and testing
 
 > [!TLDR]
-> After windowing, the 412th fill is not the 412th `<tr>`. Scroll by index, find by
-> `data-*` id. And jsdom has no layout, so shim the few numbers the virtualizer reads.
+> After virtualizing, the 412th fill is no longer the 412th `<tr>`.
+> Find rows by a `data-` id, and give the fake test browser a few made-up sizes so it mounts anything at all.
 
 > [!NUANCE]
-> - "Jump to fill": `scrollToIndex`, then retry the `querySelector` once per frame
->   (up to ten), because the row does not exist when `scrollToIndex` returns.
-> - The row needs `tabIndex={-1}` to accept focus. Call the helper from an event
->   handler, never during render - the app also renders on the server.
-> - jsdom shims: `offsetHeight`/`offsetWidth` (box and row sizes),
->   `scrollHeight`/`clientHeight` (large content, or `scrollToIndex` pins to the
->   top), and `scrollTo`, which jsdom does not implement. Fire the scroll event in
->   a microtask, like a browser.
-> - Assert that **some** rows mount and **most** do not. Zero mounted rows catches the ref bug.
+> - "Jump to fill": scroll to the index, then look for the row by id once per frame for a few frames, because it is not in the DOM the instant you ask.
+> - The row needs `tabIndex={-1}` so you can move keyboard focus to it.
+> - jsdom reports every size as 0. Fake `offsetHeight`, `scrollHeight` and `clientHeight`, and add `scrollTo`, which jsdom lacks. Then assert that *some* rows mount and *most* do not.
 
 | Styling need | Why |
 | --- | --- |
-| `table-fixed` with explicit header widths | Auto layout sizes columns from whichever rows are mounted, so they shift while scrolling |
-| Sticky classes on each `th` | A collapsed border does not travel with a sticky cell; use an inset shadow |
-| Fixed-width side badges | "buy" vs "sell" would otherwise wobble the column |
-| `tabular-nums` on counters | Stops the toolbar twitching as fills stream in |
+| `table-fixed` with set header widths | Otherwise the browser sizes columns from whichever rows happen to be mounted, and they jump while scrolling |
+| Sticky styles on each header cell | Borders and backgrounds do not travel with a sticky row |
+| Fixed-width buy/sell badges | "buy" and "sell" are different widths and would wobble the column |
+| `tabular-nums` on live counters | Stops the numbers twitching as fills stream in |
 
 > [!WIN]
-> 50,000 fills, about 35 rows in the DOM at any scroll position, stable columns, and
-> a test that fails if anyone reintroduces the ref bug.
+> 50,000 fills, about 35 rows in the DOM at any moment, columns that stay still, and a test that fails if anyone brings the empty-table bug back.
 
 ![The finished Executions tape: sticky muted header, buy and sell badges, row numbers, a flagged fill with its order panel open and a note typed, and a footer strip reading Showing 50,000 fills](images/03-virtualized-data-table/tape-finished.png)
 
