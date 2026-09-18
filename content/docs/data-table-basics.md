@@ -9,31 +9,53 @@ minutes: 16
 
 ## The big picture
 
+> [!TERMS]
+> - **Row** - one record on screen, like one stock position.
+> - **Column definition** - a small object that says how to read one value out of a row and how to draw it.
+> - **Pipeline** - a fixed series of steps the rows go through, where each step takes the previous step's output.
+> - **Headless library** - a library that does the logic but draws nothing; you supply the HTML.
+> - **TanStack Table** - the headless table library this series uses.
+> - **shadcn/ui** - a set of copy-into-your-project React components; here, the styled table pieces.
+> - **State** - a value React remembers between renders, like "which page am I on".
+> - **Render** - React running your component function to work out what the screen should show.
+
 > [!TLDR]
-> A table is a pipeline: filter, then sort, then paginate. Every basic table bug
-> is either the wrong order, an unstable column array, or a page index nobody reset.
+> Every table on screen is the result of three steps done in a strict order: filter, then sort, then cut out one page.
+> Most basic table bugs come from doing those steps in the wrong order, or forgetting to go back to page 1.
 
-The running example is **Meridian**, a fictional portfolio analytics app. This part
-uses its Positions blotter: about 240 rows, all loaded into the browser at once.
+Picture a spreadsheet of about 240 stock positions.
+A trader types "NVDA" in a search box, clicks a column to sort it, and flips through pages of 20.
+That is the whole job of this part.
 
-| Part | What it is | Who owns it |
+We use one made-up app all series long, called **Meridian**.
+Its "Positions blotter" is a table of the positions a trading desk holds.
+"Blotter" is just trading slang for "the table of what we have right now".
+
+Every data table, in any library, has four parts:
+
+| Part | What it is | Who writes it |
 | --- | --- | --- |
-| Data | An array of row objects | You |
-| Column definitions | How to read a value and how to render it | You |
-| Row pipeline | Rows on screen, derived from data + filter + sort + page | TanStack Table |
-| Render | Header, body, controls | shadcn/ui markup, wired by you |
+| Data | The array of row objects | You |
+| Column definitions | How to read and draw each value | You |
+| Row pipeline | Filter, sort, page | TanStack Table (or you, in an interview) |
+| Markup | The actual `<table>` HTML and controls | shadcn/ui pieces, wired up by you |
 
 ![TanStack Table hands rows to your component, your component maps them to JSX, and shadcn/ui supplies the styled table elements.](images/01-data-table-basics/headless-split.png)
 
-"Headless" means TanStack renders nothing. It takes data, columns and state, and
-hands back row models: arrays already filtered, sorted and sliced. Your component
-is the glue.
+> [!ANALOGY]
+> TanStack Table is the kitchen and shadcn/ui is the plates.
+> The kitchen prepares the food (which rows, in what order), the plates make it look good, and your component is the waiter carrying one to the other.
 
 ## The interview version: plain state
 
 > [!TLDR]
-> Three pieces of state - query, sort, page. Everything on screen is derived from
-> those plus the data, in one `useMemo`, in a fixed order.
+> In an interview you get no library.
+> You keep three pieces of state - the search text, the sort, and the page number - and work out the visible rows from them every time.
+
+Here is the key idea.
+You never store "the rows on screen" anywhere.
+You store only what the user chose, and you *calculate* the rows from that, on every render.
+That calculation is called **derived state**: it is derived from other state, so it can never fall out of sync.
 
 ![The row pipeline runs filter, sort, then paginate, and any change to the filter or sort sends the page back to 1.](images/01-data-table-basics/row-pipeline.png)
 
@@ -49,150 +71,160 @@ const { total, pageRows } = useMemo(() => {
 }, [positions, debouncedQuery, sort, page]);
 ```
 
+`useMemo` just means "only redo this calculation when one of these inputs changes".
+
 > [!STEPS]
-> 1. **Filter first.** It shrinks the set you then have to sort.
-> 2. **Sort a copy.** `Array.prototype.sort` mutates, so sort `[...rows]`.
-> 3. **Paginate last.** A page is a window onto the final ordered list.
-> 4. **Search named fields.** Matching `avgCost` gives results users cannot explain.
+> 1. **Filter first.** Throw away rows that do not match the search. Now there is less to sort.
+> 2. **Sort a copy.** JavaScript's `.sort()` changes the array you call it on, so sort `[...rows]`, a fresh copy.
+> 3. **Paginate last.** A page is a window onto the *finished* list. Cut it out at the very end.
+> 4. **Search named fields only.** Match symbol, name and trader. Matching every field finds rows by numbers the user cannot see, which looks broken.
+
+Why does the order matter so much?
+If you paginate first, you cut out 20 rows and then search only those 20.
+A match on page 5 simply disappears.
 
 > [!NUANCE]
-> - Check nulls **before** multiplying by the direction sign. Otherwise nulls flip
->   ends when the user flips the sort. Nulls go last in both directions.
-> - `total` comes from the filtered list, not the page, or the footer lies.
-> - The sort cycles asc, desc, off. Three states, not two.
+> - Empty values (like "no price yet") should sit at the bottom whether you sort up or down.
+>   Handle them *before* you flip the direction, or they jump to the top when the user flips the sort.
+> - The total in the footer must count the filtered rows, not the page, or it says "20" when 57 matched.
+> - Clicking a header cycles three ways: ascending, descending, then off.
 
 > [!INTERVIEW]
-> - *Why filter before sort?* Sorting is O(n log n); filtering first shrinks n.
-> - *Where do nulls go when sorting descending?* Still last. Handle them before the sign flip.
+> - *Why filter before sort?* Sorting costs more as the list grows, so shrink the list first.
+> - *Where do empty values go when sorting descending?* Still at the bottom. Handle them before applying the direction.
 
-## Resetting the page, and the follow-ups
+## Going back to page 1
 
 > [!TLDR]
-> Any change to the search, a filter or the sort must send the user back to
-> page 1 - in the event handler, not in an effect.
+> Whenever the user changes the search, a filter or the sort, jump back to page 1.
+> Do it in the same click or keystroke handler, not later.
+
+Imagine you are on page 7 and you type a search that matches only 12 rows.
+There is no page 7 any more.
+Without a reset you are staring at an empty table that says "page 7 of 1".
 
 ```tsx
 const handleQueryChange = (event: ChangeEvent<HTMLInputElement>) => {
   setQuery(event.target.value);
-  setPage(1); // same event, same render
+  setPage(1); // same event, so React shows both changes together
 };
 ```
 
 > [!NUANCE]
-> - A `useEffect` watching `query` also resets the page, but only after one
->   render showing a wrong, often empty, page.
-> - Without the reset users land on "page 7 of 2", staring at an empty table.
->   This happens in real production apps, not just interviews.
-> - Debounce the filter, not the input. `query` stays bound to the `Input`; a
->   debounced copy feeds the `useMemo`.
+> - You *could* reset the page in a `useEffect` that watches the search text.
+>   A `useEffect` runs *after* the screen has already updated, so the user sees one wrong frame first.
+> - **Debouncing** means waiting until the user pauses typing before doing the work.
+>   Keep the input box instant; debounce only the filtering.
 
-The predictable follow-ups: a direction toggle, a page size control (reset to
-page 1 on change), debounced search, nulls, and accessibility.
+Interviewers tend to ask the same follow-ups: a page-size picker (reset to page 1 when it changes), debounced search, empty values, and accessibility.
 
 > [!INTERVIEW]
-> - *Where does `aria-sort` go?* On the `th`, not the button inside it. The sort
->   icons are `aria-hidden` because the attribute already carries the meaning.
-> - *Why is the sort control a real `Button`?* Keyboard focus and Enter/Space come free.
+> - *Where does `aria-sort` go?* `aria-sort` tells a screen reader how a column is sorted. It goes on the header cell (`th`), not on the button inside it.
+> - *Why make the header a real `Button`?* Keyboard users can tab to it and press Enter, for free.
 
 ![The plain React version: a search box, six sortable headers, twenty rows and a page label](images/01-data-table-basics/interview-version.png)
 
-## TanStack columns and identity
+## Columns, and why "the same object" matters
 
 > [!TLDR]
-> TanStack caches on the **identity** of `columns` and `data`. Declare columns at
-> module scope, and always pass `getRowId`.
+> Create your column definitions once, outside the component.
+> Always tell TanStack how to find each row's real id with `getRowId`.
+
+React and TanStack both check whether things changed by asking "is this the *same object* as last time?", not "does it look the same?".
+Programmers call this **identity**.
+Two arrays with identical contents are still two different objects.
+
+So if you build the columns array inside your component, you build a brand new array on every render.
+TanStack sees "new columns!" every time and rebuilds everything.
 
 ```tsx
 const columnHelper = createColumnHelper<PositionRow>();
 
-// Module scope: created once, same identity on every render.
+// Outside the component: made once, the same object forever.
 export const positionColumns = [
   columnHelper.accessor("quantity", {
     header: "Quantity",
-    cell: (info) => formatQuantity(info.getValue()), // typed as number
+    cell: (info) => formatQuantity(info.getValue()), // TypeScript knows this is a number
   }),
 ];
-
-useReactTable({ data, columns: positionColumns, getRowId: (row) => row.id,
-  getCoreRowModel: getCoreRowModel() });
 ```
 
-> [!NUANCE]
-> - The accessor returns the raw value and `cell` formats it, so sorting compares
->   numbers, never "$1,640,750".
-> - Need a live handler in a cell? Keep the column constant and read the handler
->   from `table.options.meta` at render time. Augment `TableMeta` to type it.
-> - Same rule for data: never `data={positions ?? []}` inline. `[]` is a new array
->   every render.
-> - Every feature from here on is one more `get*RowModel` option plus one piece of state.
+An **accessor** is the part that reads the raw value (`quantity`).
+The `cell` is the part that draws it ("12,500").
+Sorting uses the raw value, so numbers sort as numbers, not as text like "$1,640,750".
 
 > [!GOTCHA]
-> A column factory that closes over a page-level handler, called inside the
-> component, returns a fresh `columns` array every render. The table rebuilds and
-> remounts every cell, real clicks land on DOM nodes React already replaced, and
-> the handler silently never runs. It looks like a flaky click; it is identity.
-
-> [!INTERVIEW]
-> - *What does `getRowId` fix?* Without it rows are keyed by index, so selection
->   or expansion follows the position, not the row, after a sort.
-
-## Client-side pagination
-
-> [!TLDR]
-> One row model (`getPaginationRowModel`) and one piece of state
-> (`{ pageIndex, pageSize }`, zero-based). Control it yourself so it can live in
-> the URL later.
-
-> [!STEPS]
-> 1. **Hold `PaginationState` in `useState`.** Pass it via `state` and `onPaginationChange`.
-> 2. **Count from `getPrePaginationRowModel()`.** That is filtered and sorted, not sliced.
-> 3. **Label honestly.** "1-20 of 240", and "0 of 0" when empty - "0-0 of 0" is a range that does not exist.
-> 4. **Drive buttons from the table.** `getCanPreviousPage()` / `getCanNextPage()`.
+> Here is a real bug that looks like a flaky button.
+> A page built its columns inside the component so a cell button could call a page handler.
+> Every render made a new columns array, TanStack rebuilt every cell, and React swapped the button out from under the user's mouse.
+> The click landed on a button that no longer existed, so nothing happened.
+> The fix: keep columns outside the component, and pass live handlers through the table's `meta` option, which cells can read when they draw.
 
 > [!NUANCE]
-> - `autoResetPageIndex` is on by default, and a change in `data` counts. On a live
->   screen every refresh throws the user back to page 1.
-> - Turn it off and the reset rule is your job again: reset `pageIndex` inside
->   `onSortingChange` and `onGlobalFilterChange`.
+> - The same rule applies to data. `data={positions ?? []}` creates a new empty array every render. Use a constant empty array instead.
+> - From here on, every table feature is the same recipe: turn on one "row model" option and add one piece of state.
+
+> [!INTERVIEW]
+> - *What does `getRowId` fix?* Without it, TanStack names rows "0, 1, 2..." by position. Tick row 0, sort, and a different position is now row 0 - and looks ticked.
+
+## Pagination with TanStack
+
+> [!TLDR]
+> Turn on `getPaginationRowModel` and keep `{ pageIndex, pageSize }` in your own state.
+> `pageIndex` starts at 0, not 1.
+
+A **row model** is TanStack's name for "the list of rows after a step".
+There is one for filtering, one for sorting, one for paging.
+You switch each one on by passing it in.
+
+> [!STEPS]
+> 1. **Hold the page in `useState`.** Owning it yourself means you can later put it in the URL.
+> 2. **Count the total before the page is cut.** `getPrePaginationRowModel()` is the filtered, sorted list before slicing.
+> 3. **Label the footer honestly.** "1-20 of 240", and "0 of 0" when nothing matches. "0-0 of 0" describes a range that does not exist.
+> 4. **Let the table drive the buttons.** `getCanNextPage()` tells you whether Next should be enabled.
+
+> [!NUANCE]
+> - TanStack resets to page 1 for you by default (`autoResetPageIndex`).
+>   But it also does it when the data refreshes, so on a live screen the user is thrown back to page 1 every few seconds.
+> - If you switch that off, resetting on search and sort is your job again.
 
 ![The blotter on page 3 with 50 rows per page, the footer reading 101-150 of 240](images/01-data-table-basics/page-3-size-50.png)
 
-## Sorting
+## Sorting with TanStack
 
 > [!TLDR]
-> `getSortedRowModel` plus `SortingState`, which is an array because multi-sort is
-> built in. Signed numbers, nulls and custom orders each need one deliberate choice.
+> Turn on `getSortedRowModel` and keep the sort in state.
+> Three columns need a deliberate choice: signed numbers, empty values and custom orders.
 
 ```tsx
-const byMagnitude: SortingFn<PositionRow> = (rowA, rowB, columnId) =>
-  Math.abs(rowA.getValue<number | undefined>(columnId) ?? 0) -
-  Math.abs(rowB.getValue<number | undefined>(columnId) ?? 0);
-
 columnHelper.accessor((row) => row.dayChangePct ?? undefined, {
   id: "dayChangePct",
-  sortingFn: byMagnitude,  // written for ascending only
-  sortUndefined: "last",   // applied before the direction flip
+  sortingFn: byMagnitude,  // biggest move first, up or down
+  sortUndefined: "last",   // empty values stay at the bottom
 });
 ```
 
+A **sorting function** compares two rows and returns a negative number, zero or a positive number, just like the function you pass to `.sort()`.
+You write it for ascending order only; TanStack flips it for descending.
+
 > [!NUANCE]
-> - A `sortingFn` alone cannot put nulls last in both directions: TanStack flips
->   your comparator for descending. `sortUndefined: "last"` runs before the flip.
-> - `sortUndefined` only sees `undefined`, which is why the accessor maps `null` to `undefined`.
-> - Keep quantities signed. An accessor that returns "(4,000)" sorts text.
-> - First click sorts strings ascending and numbers **descending** by default.
->   `sortDescFirst: false` makes everything start ascending.
-> - Row model option order does not matter; TanStack always runs filter, sort, paginate.
+> - That flip is why your own sorting function cannot keep empty values at the bottom: the flip moves them to the top.
+>   `sortUndefined: "last"` runs *before* the flip, so it works.
+> - `sortUndefined` only notices `undefined`, not `null`. That is why the accessor turns `null` into `undefined`.
+> - Keep quantities as signed numbers (-4,000 for a short position). If the accessor returns the text "(4,000)", it sorts alphabetically.
+> - On the first click, TanStack sorts text A to Z but numbers **largest first**. `sortDescFirst: false` makes everything start ascending.
 
 > [!INTERVIEW]
-> - *How do you show a tie-breaker in multi-sort?* `column.getSortIndex()`; render
->   "2" beside the secondary column. Cap it with `maxMultiSortColCount`.
+> - *How do you sort by two columns?* Shift-click the second one. TanStack keeps an array of sorts; `getSortIndex()` tells you which one is the tie-breaker.
 
-## Filtering
+## Filtering with TanStack
 
 > [!TLDR]
-> One `getFilteredRowModel` serves both the search box (global filter) and the
-> facets (column filters). Name your search fields yourself.
+> One filtering row model powers both the search box and dropdown filters.
+> Write your own search function that names exactly which fields it checks.
+
+A **global filter** is the search box: it looks across the whole row.
+A **column filter** narrows one column, like "Desk is FX".
 
 ```ts
 export const matchPosition: FilterFn<PositionRow> = (row, _columnId, value) => {
@@ -203,51 +235,44 @@ export const matchPosition: FilterFn<PositionRow> = (row, _columnId, value) => {
   return SEARCH_FIELDS.some((field) =>
     row.original[field].toLowerCase().includes(needle));
 };
-// useReactTable({ globalFilterFn: matchPosition,
-//   getColumnCanGlobalFilter: (column) => column.id === "symbol" })
 ```
 
 > [!NUANCE]
-> - TanStack decides whether a column is globally searchable from the type of its
->   value in the **first row**. A column that is null on row 0 silently drops out of search.
-> - `globalFilterFn` runs once per searchable column per row. Nominate one
->   never-null column to carry it, and read `row.original` directly.
-> - A facet should use `filterFn: "equals"`. The default "includes" makes "FX"
->   match "FX Options" the day someone adds one.
-> - Radix `Select` rejects an empty string value, so "All desks" is a sentinel
->   that sets the filter to `undefined`.
+> - TanStack guesses which columns are searchable by looking at the **first row only**.
+>   If that row happens to have an empty trader, the trader column silently stops being searchable.
+>   Naming the fields yourself avoids the guess.
+> - A dropdown filter should match exactly (`filterFn: "equals"`). The default "contains" match means "FX" also matches "FX Options".
+> - The dropdown component refuses an empty value, so "All desks" uses a stand-in value that clears the filter.
 
 ![Searching for "nvda" narrows the blotter to 18 NVIDIA positions and the footer reads 1-18 of 18](images/01-data-table-basics/search-nvda.png)
 
-## Styling it to be read all day
+## Making it easy to read all day
 
 > [!TLDR]
-> Headers label, numbers align. Smaller muted header text, right-aligned
-> `tabular-nums` for numerics, and real empty and loading states.
+> Headers are labels, so make them small and quiet.
+> Numbers line up on the right with equal-width digits, so a trader can compare them at a glance.
 
-| Concern | Rule |
+`tabular-nums` is a font setting that makes every digit the same width, so columns of numbers line up like a ledger.
+
+| Concern | What to do |
 | --- | --- |
-| Numeric columns | Right-aligned, `tabular-nums`, via `meta.className` |
-| Narrow columns | Set `minSize` too, or `defaultColumn.minSize` wins |
-| Sticky header | Scroll box on the shadcn `Table` container; fill on the `th` |
-| Header rule | Inset shadow, because a bottom border does not travel with a sticky cell |
-| Empty value | One shared `EmptyCell`, never blank |
-| Empty result | Span `getVisibleLeafColumns().length`, so hidden columns do not break it |
-| Loading | Five skeleton rows under the real header, so nothing jumps |
-| Gain / loss | Two tokens (`--gain`, `--loss`), and keep the sign so colour is not the only signal |
+| Number columns | Right-aligned, `tabular-nums` |
+| Narrow columns | Set `minSize` as well as `size` |
+| Header that stays put while scrolling | Put the fill colour on each header cell, not the row |
+| Missing value | One shared "empty" marker, never a blank |
+| No results | A clear message that spans every visible column |
+| Loading | A few grey placeholder rows under the real header, so nothing jumps |
+| Gains and losses | Colour tokens, plus the + or - sign so colour is not the only clue |
 
 > [!NUANCE]
-> - TanStack resolves width as `min(max(minSize, size), maxSize)`. With an app-wide
->   `minSize: 200`, a column that sets `size: 80` still renders at 200px.
-> - A `max-h-*` on a wrapper you add never makes the header stick: shadcn's `Table`
->   already scrolls its own `div`. Add a `containerClassName` prop instead.
-> - A sticky `tr` does not carry its background. Put the fill on each `th`.
+> - TanStack works out a width as "at least `minSize`, at most `maxSize`".
+>   If the whole app says `minSize: 200`, a column asking for 80px still gets 200px until it sets its own `minSize`.
+> - A sticky row (`position: sticky`) does not carry its background colour, so rows scroll visibly behind the header text. Colour each header cell instead.
 
 ![TanStack resolves width as min(max(minSize, size), maxSize), so a column with size 80 and a default minSize of 200 renders at 200px until it sets its own minSize.](images/01-data-table-basics/column-width-resolution.png)
 
 > [!WIN]
-> The finished blotter: filter, sort and paginate in the right order, a page reset
-> on every change, stable columns, and a table you can read for a whole trading day.
+> The finished table filters, sorts and pages in the right order, goes back to page 1 whenever it should, keeps its columns stable, and is comfortable to read for a whole trading day.
 
 ![The finished Positions blotter: muted headers, right-aligned tabular numerics, green and red PnL, an em-dash for a missing day change](images/01-data-table-basics/table-default.png)
 

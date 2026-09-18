@@ -44,11 +44,11 @@ export const EntryPage = ({ kind, bionic }: EntryPageProps) => {
           <p className="mb-3 text-[12px] font-bold uppercase tracking-[0.14em] text-[var(--accent)]">
             {entry.meta.part !== undefined ? `Part ${entry.meta.part}` : (entry.meta.tags[0] ?? entry.kind)}
           </p>
-          <h1 className="font-display text-[30px] font-bold leading-[1.15] tracking-[-0.015em] sm:text-[40px]">
+          <h1 className="font-display text-[28px] font-bold leading-[1.15] tracking-[-0.015em] sm:text-[40px]">
             {entry.meta.title}
           </h1>
           {entry.meta.summary && (
-            <p className="mt-3 max-w-[62ch] text-[19px] leading-snug text-[var(--text-muted)] sm:text-[21px]">
+            <p className="mt-3 max-w-[62ch] text-[17px] leading-snug text-[var(--text-muted)] sm:text-[20px]">
               {entry.meta.summary}
             </p>
           )}

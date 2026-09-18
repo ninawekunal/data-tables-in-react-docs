@@ -1,51 +1,40 @@
 import { useEffect, useState } from 'react'
 import type { Heading } from '@/lib/types'
 
-/** Tracks which section is in view so both TOCs can highlight it. */
+/** The section being read: the last heading whose top is in the upper 40% of the viewport. */
 export const useActiveHeading = (headings: Heading[]): string => {
   const [active, setActive] = useState('')
 
   useEffect(() => {
     if (headings.length === 0) return
 
-    const seen = new Map<string, number>()
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) seen.set(entry.target.id, entry.intersectionRatio)
+    let frame = 0
 
-        let best = ''
-        let bestTop = Number.POSITIVE_INFINITY
+    const update = () => {
+      frame = 0
+      const line = window.innerHeight * 0.4
+      let current = headings[0].id
 
-        for (const heading of headings) {
-          const el = document.getElementById(heading.id)
+      for (const heading of headings) {
+        const el = document.getElementById(heading.id)
 
-          if (!el) continue
+        if (el && el.getBoundingClientRect().top <= line) current = heading.id
+      }
 
-          const top = el.getBoundingClientRect().top
-
-          if (top <= 120 && top < bestTop) {
-            // Keep the last heading whose top has passed the sticky header.
-            best = heading.id
-            bestTop = Number.NEGATIVE_INFINITY
-          }
-          if (best === '' && top > 0 && top < bestTop) {
-            bestTop = top
-            best = heading.id
-          }
-        }
-
-        if (best) setActive(best)
-      },
-      { rootMargin: '-100px 0px -60% 0px', threshold: [0, 0.25, 1] },
-    )
-
-    for (const heading of headings) {
-      const el = document.getElementById(heading.id)
-
-      if (el) observer.observe(el)
+      setActive(current)
     }
 
-    return () => observer.disconnect()
+    const onScroll = () => {
+      if (frame === 0) frame = requestAnimationFrame(update)
+    }
+
+    update()
+    window.addEventListener('scroll', onScroll, { passive: true })
+
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      if (frame !== 0) cancelAnimationFrame(frame)
+    }
   }, [headings])
 
   return active

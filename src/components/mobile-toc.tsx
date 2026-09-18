@@ -39,7 +39,7 @@ export const MobileToc = ({ headings, active }: MobileTocProps) => {
   return (
     <div
       ref={wrapRef}
-      className="sticky top-[57px] z-30 -mx-4 mb-5 border-b border-[var(--border)] bg-[var(--bg)]/95 px-4 backdrop-blur lg:hidden"
+      className="sticky top-[57px] z-30 -mx-4 -mt-8 mb-6 border-b border-[var(--border)] bg-[var(--bg)]/95 px-4 backdrop-blur lg:hidden"
     >
       <button
         type="button"

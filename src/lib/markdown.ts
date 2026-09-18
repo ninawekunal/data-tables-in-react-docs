@@ -15,6 +15,14 @@ const CALLOUTS = {
 
 type CalloutKey = keyof typeof CALLOUTS
 
+const decodeEntities = (text: string): string =>
+  text
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+
 export const slugify = (text: string): string =>
   text
     .toLowerCase()
@@ -91,7 +99,7 @@ export const renderMarkdown = (source: string): Rendered => {
         seen.add(id)
 
         if (token.depth === 2 || token.depth === 3) {
-          headings.push({ id, text: text.replace(/<[^>]*>/g, ''), level: token.depth as 2 | 3 })
+          headings.push({ id, text: decodeEntities(text.replace(/<[^>]*>/g, '')), level: token.depth as 2 | 3 })
         }
 
         return `<h${token.depth} id="${id}">${text}</h${token.depth}>\n`
