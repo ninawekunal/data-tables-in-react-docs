@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button'
-import { BoltIcon, MoonIcon, SunIcon, WidthIcon } from '@/components/ui/icon'
+import { EyePlusIcon, MoonIcon, SunIcon, WidthIcon } from '@/components/ui/icon'
 import { useReadingWidth, useTheme } from '@/lib/prefs'
 
 type ReaderControlsProps = {
@@ -19,7 +19,7 @@ export const ReaderControls = ({ bionic, onToggleBionic }: ReaderControlsProps) 
         variant="ghost"
         onClick={onToggleBionic}
         active={bionic}
-        icon={<BoltIcon />}
+        icon={<EyePlusIcon />}
         aria-label={bionic ? 'Turn bionic reading off' : 'Turn bionic reading on'}
         title="Bionic reading"
       >

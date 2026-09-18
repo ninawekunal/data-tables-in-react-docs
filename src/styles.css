@@ -138,6 +138,13 @@ body {
 .prose ul,
 .prose ol { margin: 1rem 0; padding-left: 1.4rem; }
 
+/* Tailwind's reset strips list markers; the reading surface wants them back. */
+.prose ul { list-style: disc; }
+
+.prose ol { list-style: decimal; }
+
+.prose li::marker { color: var(--text-muted); }
+
 .prose li { margin: 0.45rem 0; }
 
 .prose a {

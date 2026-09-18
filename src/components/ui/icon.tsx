@@ -76,3 +76,12 @@ export const ClockIcon = (props: IconProps) => (
     <path d="M12 7v5l3 2" />
   </svg>
 )
+
+export const EyePlusIcon = (props: IconProps) => (
+  <svg {...base(props)}>
+    <path d="M2 12s3.5-6.5 10-6.5c2 0 3.7.6 5.1 1.5" />
+    <path d="M22 12s-3.5 6.5-10 6.5S2 12 2 12" />
+    <circle cx="12" cy="12" r="2.8" />
+    <path d="M19 2.5v5M16.5 5h5" />
+  </svg>
+)

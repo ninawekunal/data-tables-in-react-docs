@@ -3,6 +3,7 @@ title: Data table basics - sort, filter, paginate
 summary: Build a sortable, filterable, paginated table twice - once with plain React state for interviews, once with TanStack Table and shadcn/ui.
 date: 2026-09-17
 part: 1
+series: Data Tables in React
 tags: [tanstack-table, shadcn, interviews]
 minutes: 16
 ---

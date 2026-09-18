@@ -3,6 +3,7 @@ title: Row selection - from one page to cross-page bulk actions
 summary: Checkbox selection in TanStack Table and shadcn/ui - stable row ids, disabled rows, a bulk action bar, cross-page selection and a React Compiler trap.
 date: 2026-09-17
 part: 4
+series: Data Tables in React
 tags: [tanstack-table, selection, react-compiler]
 minutes: 15
 ---

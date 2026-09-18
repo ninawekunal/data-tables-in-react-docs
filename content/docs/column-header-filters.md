@@ -3,6 +3,7 @@ title: Column header filters with shadcn Popover
 summary: Spreadsheet-style filters in the column header, backed by one typed filter object that feeds every surface, the URL and the BFF.
 date: 2026-09-17
 part: 7
+series: Data Tables in React
 tags: [filters, shadcn, state-design]
 minutes: 16
 ---

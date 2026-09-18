@@ -11,7 +11,9 @@ export const EntryCard = ({ entry }: { entry: ContentEntry }) => (
   >
     <Card className="flex h-full flex-col transition-colors group-hover:border-[var(--primary)]">
       <p className="m-0 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--accent)]">
-        {entry.meta.part !== undefined ? `Part ${entry.meta.part}` : (entry.meta.tags[0] ?? entry.kind)}
+        {entry.meta.part !== undefined
+              ? `${entry.meta.series ? `${entry.meta.series} · ` : ''}Part ${entry.meta.part}`
+              : (entry.meta.tags[0] ?? entry.kind)}
       </p>
       <h3 className="font-display mt-2 text-[19px] font-bold leading-snug tracking-tight">{entry.meta.title}</h3>
       <p className="mt-1.5 text-[14px] leading-relaxed text-[var(--text-muted)]">{entry.meta.summary}</p>

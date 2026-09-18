@@ -17,6 +17,8 @@ export type Frontmatter = {
   minutes?: number
   /** Series position; docs with a part sort by it ascending. */
   part?: number
+  /** Series name; docs sharing it get previous / next links. */
+  series?: string
   draft?: boolean
 }
 

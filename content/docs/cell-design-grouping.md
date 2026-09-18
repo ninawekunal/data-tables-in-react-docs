@@ -3,6 +3,7 @@ title: Cell design - when to group, when to standardize
 summary: When two fields belong in one cell, when they must stay apart, and how to make money, PnL and empty cells impossible to render inconsistently.
 date: 2026-09-17
 part: 5
+series: Data Tables in React
 tags: [ux, tanstack-table, formatting]
 minutes: 15
 ---

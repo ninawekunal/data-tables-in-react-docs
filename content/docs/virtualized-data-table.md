@@ -3,6 +3,7 @@ title: Virtualizing a table - and when you should not
 summary: Measure first, try a render cap, then wire useVirtualizer into a shadcn Table with spacer rows, measured heights, memoized rows and jsdom tests.
 date: 2026-09-17
 part: 3
+series: Data Tables in React
 tags: [virtualization, performance, testing]
 minutes: 17
 ---

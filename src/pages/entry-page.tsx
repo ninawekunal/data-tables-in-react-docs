@@ -42,7 +42,9 @@ export const EntryPage = ({ kind, bionic }: EntryPageProps) => {
 
         <header className="mb-10 border-b border-[var(--border)] pb-8">
           <p className="mb-3 text-[12px] font-bold uppercase tracking-[0.14em] text-[var(--accent)]">
-            {entry.meta.part !== undefined ? `Part ${entry.meta.part}` : (entry.meta.tags[0] ?? entry.kind)}
+            {entry.meta.part !== undefined
+              ? `${entry.meta.series ? `${entry.meta.series} · ` : ''}Part ${entry.meta.part}`
+              : (entry.meta.tags[0] ?? entry.kind)}
           </p>
           <h1 className="font-display text-[28px] font-bold leading-[1.15] tracking-[-0.015em] sm:text-[40px]">
             {entry.meta.title}

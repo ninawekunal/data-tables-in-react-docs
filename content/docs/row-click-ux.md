@@ -3,6 +3,7 @@ title: Row click UX - expando, drawer or detail page
 summary: What should clicking a table row do? A decision framework, the three guards every clickable row needs, and URL-driven drawers.
 date: 2026-09-17
 part: 6
+series: Data Tables in React
 tags: [ux, accessibility, react-router]
 minutes: 15
 ---

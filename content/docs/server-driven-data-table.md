@@ -3,6 +3,7 @@ title: Server-driven tables - SSR, BFF filters, reusable columns
 summary: Move a table to the server behind a small BFF - a route triple, a pure compute pipeline, a per-user cache and one zod contract on both ends.
 date: 2026-09-17
 part: 2
+series: Data Tables in React
 tags: [bff, ssr, react-router, security]
 minutes: 18
 ---
