@@ -1,4 +1,5 @@
 import { cn } from '@/lib/cn'
+import { scrollToSection } from '@/lib/scroll-to'
 import type { Heading } from '@/lib/types'
 
 type TocSidebarProps = { headings: Heading[]; active: string }
@@ -19,6 +20,7 @@ export const TocSidebar = ({ headings, active }: TocSidebarProps) => {
           <li key={heading.id}>
             <a
               href={`#${heading.id}`}
+              onClick={(event) => scrollToSection(event, heading.id)}
               className={cn(
                 '-ml-px block cursor-pointer border-l-2 py-1 text-[13px] leading-snug transition-colors',
                 heading.level === 3 ? 'pl-6' : 'pl-3',

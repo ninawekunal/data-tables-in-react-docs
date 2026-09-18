@@ -6,6 +6,7 @@ import { Quiz } from '@/components/quiz'
 import { SeriesNav } from '@/components/series-nav'
 import { TocSidebar } from '@/components/toc-sidebar'
 import { useActiveHeading } from '@/components/use-active-heading'
+import { Byline } from '@/components/byline'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ArrowLeftIcon } from '@/components/ui/icon'
@@ -39,25 +40,32 @@ export const EntryPage = ({ kind, bionic }: EntryPageProps) => {
       <div className="min-w-0 flex-1">
         <MobileToc headings={rendered.headings} active={active} />
 
-        <header className="mb-8">
-          <div className="mb-2 flex flex-wrap items-center gap-1.5">
-            {entry.meta.date && <Badge>{entry.meta.date}</Badge>}
-            {entry.meta.minutes && <Badge>{entry.meta.minutes} min</Badge>}
-            {entry.meta.tags.map((tag) => (
-              <Badge key={tag} tone="primary">
-                {tag}
-              </Badge>
-            ))}
-          </div>
-          <h1 className="text-[28px] font-semibold leading-tight tracking-tight sm:text-[34px]">
+        <header className="mb-10 border-b border-[var(--border)] pb-8">
+          <p className="mb-3 text-[12px] font-bold uppercase tracking-[0.14em] text-[var(--accent)]">
+            {entry.meta.part !== undefined ? `Part ${entry.meta.part}` : (entry.meta.tags[0] ?? entry.kind)}
+          </p>
+          <h1 className="font-display text-[30px] font-bold leading-[1.15] tracking-[-0.015em] sm:text-[40px]">
             {entry.meta.title}
           </h1>
           {entry.meta.summary && (
-            <p className="mt-2 max-w-[62ch] text-[17px] text-[var(--text-muted)]">{entry.meta.summary}</p>
+            <p className="mt-3 max-w-[62ch] text-[19px] leading-snug text-[var(--text-muted)] sm:text-[21px]">
+              {entry.meta.summary}
+            </p>
           )}
+          <div className="mt-6">
+            <Byline date={entry.meta.date} minutes={entry.meta.minutes} />
+          </div>
         </header>
 
         <Article html={rendered.html} bionic={bionic} />
+
+        {entry.meta.tags.length > 0 && (
+          <div className="mt-10 flex flex-wrap gap-1.5">
+            {entry.meta.tags.map((tag) => (
+              <Badge key={tag}>{tag}</Badge>
+            ))}
+          </div>
+        )}
 
         <Quiz title={entry.meta.title} items={entry.quiz} bionic={bionic} />
 

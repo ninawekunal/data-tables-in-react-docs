@@ -1,5 +1,10 @@
 @import 'tailwindcss';
 
+@theme {
+  --font-display: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-serif: 'Source Serif 4', Charter, 'Iowan Old Style', Georgia, serif;
+}
+
 /* ---------------------------------------------------------------
    Palette. Plum primary, amber accent, warm paper in light mode,
    true neutral in dark. Every colour in the app comes from here.
@@ -63,7 +68,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 17px;
   line-height: 1.65;
   -webkit-font-smoothing: antialiased;
@@ -80,96 +85,144 @@ body {
    --------------------------------------------------------------- */
 .prose {
   max-width: var(--reading-width);
+  font-family: var(--font-serif);
+  font-size: 20px;
+  line-height: 1.62;
+  letter-spacing: -0.003em;
+  color: var(--text);
+}
+
+@media (max-width: 640px) {
+  .prose { font-size: 18px; line-height: 1.6; }
+}
+
+.prose h2,
+.prose h3,
+.prose table,
+.prose .callout,
+.prose pre {
+  font-family: var(--font-display);
 }
 
 .prose h2 {
-  font-size: 1.45rem;
+  font-size: 1.35rem;
+  font-weight: 700;
   line-height: 1.25;
-  margin: 2.75rem 0 0.75rem;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.012em;
+  margin: 3.25rem 0 0.9rem;
   scroll-margin-top: 5.5rem;
+}
+
+/* Medium-style section break: three centred dots before every section after the first. */
+.prose h2:not(:first-child)::before {
+  content: '\00B7\2003\00B7\2003\00B7';
+  display: block;
+  margin-bottom: 3rem;
+  text-align: center;
+  font-family: var(--font-serif);
+  font-size: 1.9rem;
+  font-weight: 400;
+  line-height: 1;
+  color: var(--text-muted);
 }
 
 .prose h3 {
   font-size: 1.1rem;
-  margin: 1.75rem 0 0.5rem;
+  font-weight: 700;
+  margin: 2rem 0 0.5rem;
   scroll-margin-top: 5.5rem;
 }
 
-.prose p { margin: 0.85rem 0; }
+.prose p { margin: 1.15rem 0; }
 
 .prose ul,
-.prose ol { margin: 0.75rem 0; padding-left: 1.35rem; }
+.prose ol { margin: 1rem 0; padding-left: 1.4rem; }
 
-.prose li { margin: 0.35rem 0; }
+.prose li { margin: 0.45rem 0; }
 
 .prose a {
   color: var(--primary);
   text-underline-offset: 3px;
 }
 
-.prose strong { font-weight: 650; }
+.prose strong { font-weight: 600; }
+
+.prose em { font-style: italic; }
 
 .prose code {
   background: var(--code-bg);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 0.1em 0.35em;
-  font-size: 0.86em;
+  border-radius: 4px;
+  padding: 0.12em 0.35em;
+  font-size: 0.8em;
   font-family: ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
 .prose pre {
   background: var(--code-bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0.9rem 1rem;
+  border-radius: 8px;
+  padding: 1rem 1.1rem;
+  margin: 1.6rem 0;
   overflow-x: auto;
-  font-size: 0.85rem;
-  line-height: 1.55;
+  font-size: 0.8rem;
+  line-height: 1.6;
 }
 
 .prose pre code {
   background: none;
-  border: 0;
   padding: 0;
   font-size: inherit;
 }
 
 .prose blockquote {
-  margin: 1rem 0;
-  padding: 0.1rem 0 0.1rem 1rem;
-  border-left: 3px solid var(--border);
-  color: var(--text-muted);
+  margin: 1.5rem 0;
+  padding: 0 0 0 1.25rem;
+  border-left: 3px solid var(--text);
+  font-style: italic;
 }
 
 .prose table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.92rem;
-  margin: 1rem 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  margin: 0;
 }
 
 .prose th,
 .prose td {
-  border: 1px solid var(--border);
-  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+  padding: 0.6rem 0.75rem 0.6rem 0;
   text-align: left;
   vertical-align: top;
 }
 
-.prose th { background: var(--surface-2); font-weight: 600; }
+.prose th {
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 
-.table-wrap { overflow-x: auto; margin: 1rem 0; }
+.table-wrap { overflow-x: auto; margin: 1.75rem 0; }
 
-.prose img { max-width: 100%; border-radius: 10px; }
+.prose img {
+  display: block;
+  max-width: 100%;
+  margin: 2rem auto;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #fff;
+}
 
 .prose svg { max-width: 100%; height: auto; }
 
 /* Callout boxes. One class per bucket, colour driven by tokens. */
 .callout {
-  margin: 1.1rem 0;
-  padding: 0.85rem 1rem;
+  margin: 1.6rem 0;
+  padding: 0.95rem 1.1rem;
+  font-size: 0.82em;
+  line-height: 1.6;
   border-radius: 12px;
   border: 1px solid var(--border);
   background: var(--surface-2);
@@ -189,6 +242,15 @@ body {
 
 .callout-tldr { background: var(--primary-soft); border-color: color-mix(in srgb, var(--primary) 30%, transparent); }
 .callout-tldr .callout-label { color: var(--primary); }
+
+.callout-terms { background: var(--surface); border-style: dashed; }
+.callout-terms .callout-label { color: var(--accent); }
+.callout-terms ul { list-style: none; padding-left: 0; }
+.callout-terms li { margin: 0.55rem 0; }
+.callout-terms li strong { color: var(--text); }
+
+.prose .callout-analogy { background: var(--accent-soft); border-color: transparent; font-family: var(--font-serif); font-size: 0.95em; font-style: italic; }
+.callout-analogy .callout-label { color: var(--accent); font-family: var(--font-display); font-style: normal; }
 
 .callout-steps { background: var(--info-soft); border-color: color-mix(in srgb, var(--info) 30%, transparent); }
 .callout-steps .callout-label { color: var(--info); }
@@ -225,11 +287,4 @@ body {
   padding: 0.1rem 0.45rem;
   border: 1px solid currentColor;
   vertical-align: 0.1em;
-}
-
-.prose img {
-  display: block;
-  margin: 1.25rem 0;
-  border: 1px solid var(--border);
-  background: #fff;
 }

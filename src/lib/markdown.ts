@@ -4,6 +4,8 @@ import type { Heading } from '@/lib/types'
 
 const CALLOUTS = {
   TLDR: 'TL;DR',
+  TERMS: 'Words you will meet',
+  ANALOGY: 'Think of it like this',
   STEPS: 'Steps',
   NUANCE: 'Nuances',
   INTERVIEW: 'Interview must-know',

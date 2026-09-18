@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronIcon, ListIcon } from '@/components/ui/icon'
 import { cn } from '@/lib/cn'
+import { scrollToSection } from '@/lib/scroll-to'
 import type { Heading } from '@/lib/types'
 
 type MobileTocProps = { headings: Heading[]; active: string }
@@ -62,7 +63,10 @@ export const MobileToc = ({ headings, active }: MobileTocProps) => {
               <li key={heading.id}>
                 <a
                   href={`#${heading.id}`}
-                  onClick={() => setOpen(false)}
+                  onClick={(event) => {
+                    setOpen(false)
+                    scrollToSection(event, heading.id)
+                  }}
                   className={cn(
                     'block cursor-pointer rounded-lg px-2 py-2.5 text-[13px] leading-snug',
                     heading.level === 3 && 'pl-6 text-[var(--text-muted)]',

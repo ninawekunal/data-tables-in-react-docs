@@ -29,6 +29,7 @@ export const ReaderControls = ({ bionic, onToggleBionic }: ReaderControlsProps) 
         size="sm"
         variant="ghost"
         onClick={cycleWidth}
+        className="max-lg:hidden"
         icon={<WidthIcon />}
         aria-label={`Reading width, step ${width + 1} of 3`}
         title="Reading width"

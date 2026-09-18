@@ -142,7 +142,7 @@ for (const dir of DIRS) {
     if (gotchas > 1) warn(file, `${gotchas} gotcha callouts (spend it once)`)
 
     const badCallout = body.match(/> \[!([A-Z]+)\]/g)?.find(
-      (m) => !['TLDR', 'STEPS', 'NUANCE', 'INTERVIEW', 'GOTCHA', 'WIN'].includes(m.slice(4, -1)),
+      (m) => !['TLDR', 'TERMS', 'ANALOGY', 'STEPS', 'NUANCE', 'INTERVIEW', 'GOTCHA', 'WIN'].includes(m.slice(4, -1)),
     )
 
     if (badCallout) fail(file, `unknown callout ${badCallout}`)
